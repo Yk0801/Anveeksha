@@ -26,7 +26,7 @@ serve(async (req: Request) => {
         Authorization: `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "Sri Anveeksha <onboarding@resend.dev>",
+        from: "Sri Anveeksha <admissions@venkatesh7305.me>",
         to: "yukthasri0801@gmail.com",
         reply_to: email,
         subject: `New Admission Inquiry from ${name}`,
