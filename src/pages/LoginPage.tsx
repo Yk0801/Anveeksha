@@ -97,8 +97,8 @@ const LoginPage = () => {
 
       {/* School Logo */}
       <div className="text-center mb-8 relative z-10">
-        <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md mx-auto mb-3 flex items-center justify-center border border-white/20 shadow-xl">
-          <span className="text-white font-bold text-2xl" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>SA</span>
+        <div className="w-16 h-16 rounded-2xl bg-white p-1 mb-3 flex items-center justify-center border border-white/20 shadow-xl overflow-hidden">
+          <img src="/school_logo.png" alt="Logo" className="w-full h-full object-contain" onError={e => e.currentTarget.style.display = 'none'} />
         </div>
         <h1 className="text-white font-bold text-2xl" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Sri Anveeksha Public School</h1>
         <p className="text-white/80 text-sm mt-1 tracking-wider uppercase font-medium" style={{ fontFamily: "Inter, sans-serif" }}>Ootla, Jinnaram</p>

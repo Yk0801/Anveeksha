@@ -47,7 +47,7 @@ const AdmissionsSection = () => {
           className="bg-gradient-to-r from-[#F97316] to-[#4F46E5] rounded-2xl p-8 text-center text-white mb-14">
           <p className="text-sm font-semibold uppercase tracking-widest opacity-80 mb-2" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Enroll Today</p>
           <h2 className="text-3xl sm:text-4xl font-bold mb-2" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-            Admissions open for 2025–26
+            Admissions open for 2026–27
           </h2>
           <p className="opacity-80 text-lg" style={{ fontFamily: "Inter, sans-serif" }}>Limited seats available. Secure your child's future today.</p>
           <div className="flex flex-wrap gap-3 justify-center mt-6">
@@ -73,9 +73,8 @@ const AdmissionsSection = () => {
                 {timeline.map((t, i) => (
                   <motion.div key={i} initial={{ opacity: 0, x: -10 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }}
                     className="flex gap-4 mb-5 relative">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold z-10 flex-shrink-0 border-2 ${
-                      i <= 2 ? "bg-[#F97316] border-[#F97316] text-white" : "bg-white border-slate-300 text-slate-500"
-                    }`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{i + 1}</div>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold z-10 flex-shrink-0 border-2 ${i <= 2 ? "bg-[#F97316] border-[#F97316] text-white" : "bg-white border-slate-300 text-slate-500"
+                      }`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{i + 1}</div>
                     <div>
                       <p className="font-semibold text-slate-800 text-sm" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{t.label}</p>
                       <p className="text-slate-500 text-xs mt-0.5" style={{ fontFamily: "Inter, sans-serif" }}>{t.date}</p>

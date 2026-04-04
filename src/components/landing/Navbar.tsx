@@ -30,16 +30,13 @@ const Navbar = () => {
   return (
     <>
       <nav
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          scrolled ? "bg-white/95 backdrop-blur-sm shadow-sm" : "bg-black/20 backdrop-blur-sm"
-        }`}
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-white/95 backdrop-blur-sm shadow-sm" : "bg-black/20 backdrop-blur-sm"
+          }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
           {/* Logo */}
           <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="flex items-center gap-2 group">
-            <div className="w-9 h-9 rounded-xl bg-[#F97316] flex items-center justify-center flex-shrink-0">
-              <span className="text-white font-bold text-base leading-none" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>SA</span>
-            </div>
+            <img src="/school_logo.jpeg" alt="Sri Anveeksha Logo" className="w-10 h-10 object-contain rounded-xl bg-white p-0.5 shadow-sm" onError={(e) => (e.currentTarget.style.display = 'none')} />
             <div className="text-left hidden sm:block">
               <div className={`font-bold text-sm leading-tight transition-colors ${scrolled ? "text-slate-900" : "text-white"}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Sri Anveeksha</div>
               <div className={`text-xs transition-colors ${scrolled ? "text-slate-500" : "text-white/80"}`}>Public School</div>
@@ -65,11 +62,10 @@ const Navbar = () => {
             {/* Parent Login */}
             <button
               onClick={() => navigate("/login?role=parent")}
-              className={`flex items-center gap-1.5 text-sm font-semibold transition-all px-3 py-1.5 rounded-lg ${
-                scrolled
+              className={`flex items-center gap-1.5 text-sm font-semibold transition-all px-3 py-1.5 rounded-lg ${scrolled
                   ? "text-[#F97316] hover:bg-orange-50 border border-[#F97316]/30"
                   : "text-white/90 hover:bg-white/10 border border-white/25"
-              }`}
+                }`}
               style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
             >
               <GraduationCap className="w-4 h-4" />
@@ -79,11 +75,10 @@ const Navbar = () => {
             {/* Admin Login */}
             <button
               onClick={() => navigate("/login?role=admin")}
-              className={`flex items-center gap-1.5 text-sm font-semibold transition-all px-3 py-1.5 rounded-lg ${
-                scrolled
+              className={`flex items-center gap-1.5 text-sm font-semibold transition-all px-3 py-1.5 rounded-lg ${scrolled
                   ? "text-[#4F46E5] hover:bg-indigo-50 border border-[#4F46E5]/30"
                   : "text-white/90 hover:bg-white/10 border border-white/25"
-              }`}
+                }`}
               style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
             >
               <ShieldCheck className="w-4 h-4" />

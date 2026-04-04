@@ -1,13 +1,34 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
 
 const ContactSection = () => {
   const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handle = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm({ ...form, [e.target.name]: e.target.value });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const { error } = await supabase.functions.invoke('send-inquiry', {
+        body: form,
+      });
+      if (error) throw error;
+      setSubmitted(true);
+      setForm({ name: "", email: "", phone: "", message: "" });
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send message. Please try again later.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <section id="contact" className="py-20 bg-white">
@@ -68,7 +89,7 @@ const ContactSection = () => {
                 <button onClick={() => setSubmitted(false)} className="mt-4 text-[#F97316] font-medium text-sm hover:underline">Send another</button>
               </div>
             ) : (
-              <form onSubmit={(e) => { e.preventDefault(); setSubmitted(true); }} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 {[
                   { label: "Name", name: "name", type: "text", placeholder: "Your full name" },
                   { label: "Email", name: "email", type: "email", placeholder: "you@email.com" },
@@ -78,7 +99,8 @@ const ContactSection = () => {
                     <label className="block text-sm font-semibold text-slate-700 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{f.label}</label>
                     <input type={f.type} name={f.name} placeholder={f.placeholder} required
                       value={form[f.name as keyof typeof form]} onChange={handle}
-                      className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 focus:border-[#F97316]"
+                      disabled={loading}
+                      className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 focus:border-[#F97316] disabled:opacity-50"
                       style={{ fontFamily: "Inter, sans-serif" }} />
                   </div>
                 ))}
@@ -86,10 +108,17 @@ const ContactSection = () => {
                   <label className="block text-sm font-semibold text-slate-700 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Message</label>
                   <textarea name="message" rows={4} placeholder="How can we help you?" required
                     value={form.message} onChange={handle}
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 focus:border-[#F97316]"
+                    disabled={loading}
+                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 focus:border-[#F97316] disabled:opacity-50"
                     style={{ fontFamily: "Inter, sans-serif" }} />
                 </div>
-                <button type="submit" className="btn-primary w-full py-3 rounded-xl font-bold text-sm">Send Message →</button>
+                <button type="submit" disabled={loading} className="btn-primary w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-75 relative">
+                  {loading ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /> Sending...</>
+                  ) : (
+                    "Send Message →"
+                  )}
+                </button>
               </form>
             )}
           </motion.div>

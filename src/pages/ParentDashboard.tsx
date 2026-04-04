@@ -563,8 +563,8 @@ const ParentDashboard = () => {
         <div className="px-6 py-6 border-b border-slate-100 md:block hidden">
           <p className="text-xs font-black tracking-[0.2em] text-[#F97316] uppercase mb-2" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Portal Menu</p>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center text-[#F97316] font-bold text-xs tracking-tighter">SA</div>
-            <p className="text-sm font-bold text-slate-800 truncate" style={{ fontFamily: "Inter, sans-serif" }}>{student.name}</p>
+            <img src="/school_logo.png" alt="Logo" className="w-8 h-8 rounded-full shadow-sm bg-white object-contain border border-slate-100" onError={e => e.currentTarget.style.display = 'none'} />
+            <p className="text-sm font-bold text-slate-800 truncate" style={{ fontFamily: "Inter, sans-serif" }}>{student?.name || "Student"}</p>
           </div>
         </div>
 
