@@ -18,14 +18,14 @@ const menuItems = [
 
 export let cachedStudent: any = null;
 const useStudent = () => {
-  const [student, setStudent] = useState<any>(STUDENTS[0]);
+  const [student, setStudent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
     const sid = localStorage.getItem("saps_student_id");
-    if (!sid) { setStudent(STUDENTS[0]); setLoading(false); return; }
+    if (!sid) { setDbError("No session found"); setLoading(false); return; }
     
-    // Use cache only if the cached student matches the currently active ID
     if (cachedStudent && (cachedStudent.admissionNo === sid || cachedStudent.id === sid)) {
       setStudent(cachedStudent);
       setLoading(false);
@@ -33,10 +33,12 @@ const useStudent = () => {
     }
 
     setLoading(true);
-    supabase.from('students').select('*').eq('admission_no', sid).single().then(({ data }) => {
-      // Changed eq('id', sid) to eq('admission_no', sid) because sid from localStorage is "ADM001" not UUID!!
-      // Wait, let's also allow UUID just in case. But localStorage "saps_student_id" stores Parent login ID (ADM001...).
-      if (data) {
+    setDbError(null);
+    supabase.from('students').select('*').eq('id', sid).single().then(({ data, error }) => {
+      if (error) {
+        console.error("Supabase Error:", error);
+        setDbError(error.message || "Failed to fetch student profile");
+      } else if (data) {
         const mapped = {
           ...STUDENTS[0], id: data.id, name: data.name, rollNo: data.roll_no, admissionNo: data.admission_no,
           class: data.class, section: data.section, gender: data.gender, dob: data.dob, status: data.status,
@@ -48,16 +50,14 @@ const useStudent = () => {
           corrAddress: data.correspondence_address, permAddress: data.permanent_address, annualIncome: data.annual_income,
           guardianEnabled: data.guardian_enabled, guardianName: data.guardian_name, guardianOcc: data.guardian_occupation, guardianMobile: data.guardian_mobile_number, guardianEmail: data.guardian_mail_id, guardianAddress: data.guardian_address, guardianAadhar: data.guardian_aadhar_number
         };
-        cachedStudent = mapped;
         setStudent(mapped);
-      } else {
-        setStudent(STUDENTS[0]);
+        cachedStudent = mapped;
       }
       setLoading(false);
     });
   }, []);
 
-  return { student, loading };
+  return { student, loading, dbError };
 };
 
 // ─── Accordion component ─────────────────────────────────────────────────────
@@ -505,8 +505,19 @@ const ParentDashboard = () => {
   const [active, setActive] = useState("profile");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
-  const { student, loading } = useStudent();
-  if (loading) return <div className="p-10 text-center text-slate-500 font-medium">Loading Parent Portal...</div>;
+  const { student, loading, dbError } = useStudent();
+  
+  if (loading) return <div className="p-10 text-center text-slate-500 font-medium h-screen flex items-center justify-center">Loading Parent Portal...</div>;
+  if (dbError || !student) {
+    return (
+      <div className="p-10 text-center flex flex-col items-center justify-center h-screen bg-slate-50">
+        <div className="bg-red-50 text-red-500 px-6 py-4 rounded-xl border border-red-100 font-bold mb-4">
+          Database Error: {dbError || "No student record found"}
+        </div>
+        <button onClick={() => { localStorage.removeItem("saps_role"); localStorage.removeItem("saps_student_id"); navigate("/"); }} className="btn-primary px-6 py-2 rounded-lg text-sm bg-slate-900 border-none text-white hover:bg-slate-800">Return to Login</button>
+      </div>
+    );
+  }
 
   const panels: Record<string, React.ReactNode> = {
     profile: <StudentProfilePanel />,
