@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 215 25% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 15%;
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 243 75% 59%;
+    --secondary-foreground: 0 0% 100%;
+    --accent: 24 95% 53%;
+    --accent-foreground: 0 0% 100%;
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 16% 47%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 215 20% 90%;
+    --input: 215 20% 90%;
+    --ring: 24 95% 53%;
+    --radius: 0.5rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 215 25% 15%;
+    --sidebar-primary: 24 95% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 96%;
+    --sidebar-accent-foreground: 215 25% 15%;
+    --sidebar-border: 215 20% 90%;
+    --sidebar-ring: 24 95% 53%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-[#F97316] text-white font-semibold px-6 py-2.5 rounded-md hover:bg-[#ea580c] transition-colors;
+  }
+  .btn-outline {
+    @apply border border-[#F97316] text-[#F97316] font-semibold px-6 py-2.5 rounded-md hover:bg-[#F97316]/5 transition-colors;
+  }
+  .btn-coral {
+    @apply bg-[#F97316] text-white font-semibold px-6 py-2.5 rounded-md hover:bg-[#ea580c] transition-colors;
+  }
+  .section-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    @apply uppercase font-bold text-slate-800 border-b border-slate-200 pb-2 mb-6 tracking-wide text-sm;
+  }
+  .portal-table {
+    @apply w-full text-sm border-collapse;
+  }
+  .portal-table th {
+    @apply text-left font-semibold text-slate-700 py-2.5 px-3 bg-slate-50 border-b border-slate-200;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+  .portal-table td {
+    @apply py-2.5 px-3 border-b border-slate-100;
+    font-family: 'Inter', sans-serif;
+  }
+  .portal-table tr:nth-child(odd) td {
+    @apply bg-white;
+  }
+  .portal-table tr:nth-child(even) td {
+    @apply bg-slate-50/60;
+  }
+  .portal-table tr:hover td {
+    @apply bg-orange-50;
+  }
+  .status-paid { @apply text-[#F97316] font-medium; }
+  .status-pending { @apply text-[#F97316] font-medium; }
+  .status-present { @apply text-[#F97316] font-semibold; }
+  .status-absent { @apply text-[#F97316] font-semibold; }
+  .status-leave { @apply text-[#4F46E5] font-semibold; }
+  .status-holiday { @apply text-slate-400 line-through; }
+  
+  /* Sidebar menu styles - parent portal */
+  .parent-sidebar-item {
+    @apply w-full flex items-center px-4 py-3 border-b border-[#dbeafe] text-slate-700 cursor-pointer transition-colors;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .parent-sidebar-item:hover {
+    @apply bg-[#dbeafe]/50;
+  }
+  .parent-sidebar-item.active {
+    @apply bg-[#dbeafe]/70 text-[#F97316];
+    border-left: 3px solid #F97316;
+  }
+  
+  /* Sidebar menu styles - admin portal */
+  .admin-sidebar-item {
+    @apply w-full flex items-center px-4 py-3 border-b border-[#312e81]/40 text-[#c7d2fe] cursor-pointer transition-colors;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .admin-sidebar-item:hover {
+    @apply bg-white/5;
+  }
+  .admin-sidebar-item.active {
+    @apply bg-white/10 text-white;
+    border-left: 3px solid #F97316;
+  }
+
+  /* Accordion */
+  .accordion-content {
+    overflow: hidden;
+    transition: max-height 0.2s ease-out;
+  }
+}
+
+@layer utilities {
+  .gradient-hero {
+    background: linear-gradient(135deg, #F97316 0%, #4F46E5 100%);
+  }
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+  .text-orange { color: #F97316; }
+  .text-indigo-brand { color: #4F46E5; }
+  .text-coral { color: #F97316; }
+  .bg-orange-brand { background-color: #F97316; }
+  .bg-indigo-brand { background-color: #4F46E5; }
+  .bg-coral-brand { background-color: #F97316; }
+}
