@@ -28,7 +28,7 @@ const LoginPage = () => {
     e.preventDefault();
     setParentLoading(true);
     setParentError("");
-    
+
     try {
       const { data, error } = await supabase
         .from('students')
@@ -36,7 +36,7 @@ const LoginPage = () => {
         .eq('admission_no', parentEmail.trim().toUpperCase())
         .eq('password', parentPwd)
         .single();
-        
+
       if (error) {
         console.error("Supabase Login Error:", error);
         if (error.code === 'PGRST116') {
@@ -97,19 +97,19 @@ const LoginPage = () => {
 
       {/* School Logo */}
       <div className="text-center mb-8 relative z-10">
-        <div className="w-16 h-16 rounded-2xl bg-white p-1 mb-3 flex items-center justify-center border border-white/20 shadow-xl overflow-hidden">
+        {/* <div className="w-16 h-16 rounded-2xl bg-white p-1 mb-3 flex items-center justify-center border border-white/20 shadow-xl overflow-hidden">
           <img src="/school_logo.png" alt="Logo" className="w-full h-full object-contain" onError={e => e.currentTarget.style.display = 'none'} />
-        </div>
+        </div> */}
         <h1 className="text-white font-bold text-2xl" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Sri Anveeksha Public School</h1>
         <p className="text-white/80 text-sm mt-1 tracking-wider uppercase font-medium" style={{ fontFamily: "Inter, sans-serif" }}>Ootla, Jinnaram</p>
       </div>
 
       {/* Single-card layout based on role */}
       <div className="relative z-10 w-full max-w-md">
-        
+
         {/* Toggle navigation for user convenience */}
         <div className="flex bg-black/40 backdrop-blur-md rounded-2xl p-1 mb-6 border border-white/10">
-          <button 
+          <button
             type="button"
             onClick={() => navigate("/login?role=parent")}
             className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all ${role === 'parent' ? 'bg-[#F97316] text-white shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
@@ -117,7 +117,7 @@ const LoginPage = () => {
           >
             Parent Login
           </button>
-          <button 
+          <button
             type="button"
             onClick={() => navigate("/login?role=admin")}
             className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all ${role === 'admin' ? 'bg-[#F97316] text-white shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
@@ -159,7 +159,7 @@ const LoginPage = () => {
                   </div>
                 </div>
                 {parentError && <p className="text-[#F97316] text-xs font-medium bg-orange-50 p-2 rounded-lg" style={{ fontFamily: "Inter, sans-serif" }}>{parentError}</p>}
-                
+
                 <button type="submit" disabled={parentLoading}
                   className="w-full py-3.5 rounded-xl bg-[#F97316] text-white font-bold text-sm transition-all hover:bg-[#ea580c] hover:shadow-lg hover:shadow-orange-500/30 active:scale-[0.98] disabled:opacity-60 disabled:hover:scale-100 disabled:hover:shadow-none mt-2"
                   style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -206,7 +206,7 @@ const LoginPage = () => {
                   </div>
                 </div>
                 {adminError && <p className="text-[#F97316] text-xs font-medium bg-orange-50 p-2 rounded-lg" style={{ fontFamily: "Inter, sans-serif" }}>{adminError}</p>}
-                
+
                 <button type="submit" disabled={adminLoading}
                   className="w-full py-3.5 rounded-xl bg-[#F97316] text-white font-bold text-sm transition-all hover:bg-[#ea580c] hover:shadow-lg hover:shadow-orange-500/30 active:scale-[0.98] disabled:opacity-60 disabled:hover:scale-100 disabled:hover:shadow-none mt-2"
                   style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
