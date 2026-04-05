@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
@@ -10,7 +10,12 @@ const LoginPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const role = searchParams.get("role") || "parent";
-  const { loginAdmin, loginParent, sendOtp, verifyOtp, changePassword, adminUser } = useAuth();
+  const { loginAdmin, loginParent, sendOtp, verifyOtp, changePassword, adminUser, parentStudentId } = useAuth();
+
+  useEffect(() => {
+    if (adminUser) navigate("/admin", { replace: true });
+    else if (parentStudentId) navigate("/parent", { replace: true });
+  }, [adminUser, parentStudentId, navigate]);
 
   // Parent
   const [pAdm, setPAdm] = useState("");

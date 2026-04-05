@@ -31,21 +31,24 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-    const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
-    const [parentStudentId, setParentStudentId] = useState<string | null>(null);
-
-    useEffect(() => {
-        // Restore session from localStorage
+    const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
         const role = localStorage.getItem("saps_role");
-        if (role === "parent") {
-            setParentStudentId(localStorage.getItem("saps_student_id"));
-        } else if (role === "admin" || role === "faculty") {
+        if (role === "admin" || role === "faculty") {
             const stored = localStorage.getItem("saps_admin_user");
             if (stored) {
-                try { setAdminUser(JSON.parse(stored)); } catch { }
+                try { return JSON.parse(stored); } catch { return null; }
             }
         }
-    }, []);
+        return null;
+    });
+
+    const [parentStudentId, setParentStudentId] = useState<string | null>(() => {
+        const role = localStorage.getItem("saps_role");
+        if (role === "parent") {
+            return localStorage.getItem("saps_student_id");
+        }
+        return null;
+    });
 
     const loginAdmin = async (email: string, password: string) => {
         const { data, error } = await supabase
