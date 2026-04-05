@@ -1,279 +1,325 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, Menu, X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import {
-  STUDENTS, PARENTS, FEES, ATTENDANCE, REMARKS, NOTICES,
-  STAFF, BUS_ROUTES, ADMISSIONS_INQUIRIES, ANNOUNCEMENTS, Student
-} from "@/data/seedData";
+import { useAuth } from "@/context/AuthContext";
 
-const menuItems = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "students", label: "Students" },
-  { id: "attendance", label: "Attendance" },
-  { id: "fees", label: "Fee Management" },
-  { id: "remarks", label: "Remarks" },
-  { id: "admissions", label: "Admissions" },
-  { id: "announcements", label: "Announcements" },
-  { id: "bus", label: "Bus Management" },
-  { id: "staff", label: "Staff" },
-  { id: "reports", label: "Reports" },
-  { id: "settings", label: "Settings" },
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface Student {
+  id: string; admission_no: string; roll_no: string; name: string;
+  class: string; section: string; gender: string; dob: string; status: string;
+  mobile_number: string; email: string; aadhar_number: string; nationality: string;
+  religion: string; caste: string; joining_date: string;
+  father_name: string; father_occupation: string; father_mobile_number: string;
+  father_email_id: string; father_aadhar_number: string;
+  mother_name: string; mother_occupation: string; mother_mobile_number: string;
+  mother_email_id: string; mother_aadhar_number: string;
+  correspondence_address: string; permanent_address: string; annual_income: string;
+  guardian_enabled: boolean; guardian_name: string; guardian_occupation: string;
+  guardian_mobile_number: string; guardian_mail_id: string;
+  guardian_address: string; guardian_aadhar_number: string;
+}
+
+interface AdminUserRow {
+  id: string; email: string; name: string; role: string;
+  designation: string; subject: string; mobile: string;
+  is_active: boolean; must_change_password: boolean; created_at: string;
+}
+
+// ─── Menu config ──────────────────────────────────────────────────────────────
+const ADMIN_MENU = [
+  { id: "dashboard", label: "Dashboard", roles: ["superadmin", "admin"] },
+  { id: "students", label: "Students", roles: ["superadmin", "admin"] },
+  { id: "attendance", label: "Attendance", roles: ["superadmin", "admin", "faculty"] },
+  { id: "fees", label: "Fee Management", roles: ["superadmin", "admin"] },
+  { id: "remarks", label: "Remarks", roles: ["superadmin", "admin", "faculty"] },
+  { id: "admissions", label: "Admissions", roles: ["superadmin", "admin"] },
+  { id: "announcements", label: "Announcements", roles: ["superadmin", "admin"] },
+  { id: "bus", label: "Bus Management", roles: ["superadmin", "admin"] },
+  { id: "staff", label: "Staff", roles: ["superadmin", "admin"] },
+  { id: "manage_users", label: "Manage Users", roles: ["superadmin", "admin"] },
+  { id: "reports", label: "Reports", roles: ["superadmin", "admin"] },
+  { id: "settings", label: "Settings", roles: ["superadmin"] },
 ];
 
-// ─── DASHBOARD ─────────────────────────────────────────────────────────────
+// ─── Shared UI helpers ────────────────────────────────────────────────────────
+const SectionTitle = ({ children }: { children: React.ReactNode }) => (
+  <h2 className="text-sm font-black uppercase tracking-widest text-slate-800 border-b border-slate-200 pb-3 mb-5"
+    style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{children}</h2>
+);
+
+const Inp = ({ label, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
+  <div>
+    <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{label}</label>
+    <input {...props} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 bg-white" style={{ fontFamily: "Inter,sans-serif" }} />
+  </div>
+);
+
+const Sel = ({ label, children, ...props }: { label: string } & React.SelectHTMLAttributes<HTMLSelectElement>) => (
+  <div>
+    <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{label}</label>
+    <select {...props} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 bg-white" style={{ fontFamily: "Inter,sans-serif" }}>
+      {children}
+    </select>
+  </div>
+);
+
+// ─── DASHBOARD ─────────────────────────────────────────────────────────────────
 const DashboardPanel = () => {
-  const prekg = STUDENTS.filter(s => s.class === "Pre-KG").length;
-  const lkg = STUDENTS.filter(s => s.class === "LKG").length;
-  const ukg = STUDENTS.filter(s => s.class === "UKG").length;
-  const pending = ADMISSIONS_INQUIRIES.filter(a => a.status === "New" || a.status === "Reviewing").length;
-  const feesThisMonth = 19500;
+  const [counts, setCounts] = useState({ total: 0, prekg: 0, lkg: 0, ukg: 0, staff: 0, pending: 0 });
+  const [activity, setActivity] = useState<{ date: string; text: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      const [{ data: students }, { data: users }, { data: admissions }] = await Promise.all([
+        supabase.from("students").select("id,class,status"),
+        supabase.from("admin_users").select("id,role,is_active"),
+        supabase.from("admissions_inquiries").select("id,status,parent_name,child_name,created_at").order("created_at", { ascending: false }).limit(5),
+      ]);
+      const s = students || [];
+      const recentAdm = (admissions || []).map(a => ({
+        date: new Date(a.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+        text: `New admission inquiry — ${a.child_name || "—"} by ${a.parent_name || "—"}`,
+      }));
+      setCounts({
+        total: s.length,
+        prekg: s.filter(x => x.class === "Pre-KG").length,
+        lkg: s.filter(x => x.class === "LKG").length,
+        ukg: s.filter(x => x.class === "UKG").length,
+        staff: (users || []).filter(u => u.role === "faculty" && u.is_active).length,
+        pending: 0,
+      });
+      setActivity(recentAdm.length ? recentAdm : [{ date: "—", text: "No recent activity yet." }]);
+      setLoading(false);
+    };
+    load();
+  }, []);
 
   const boxes = [
-    { label: "Total Students", value: STUDENTS.length },
-    { label: "Pre-KG", value: prekg },
-    { label: "LKG", value: lkg },
-    { label: "UKG", value: ukg },
-    { label: "Staff", value: STAFF.length },
-    { label: "Pending Admissions", value: pending },
-    { label: "Fees This Month", value: `₹${feesThisMonth.toLocaleString()}` },
-  ];
-
-  const activity = [
-    { date: "04 Apr 2025", text: "Attendance marked for all classes" },
-    { date: "03 Apr 2025", text: "Remark added for Rohith Goud (UKG-A) by Mr. Suresh" },
-    { date: "03 Apr 2025", text: "New admission inquiry — Anika Rao for Pre-KG" },
-    { date: "02 Apr 2025", text: "Fee payment of ₹9,000 received — Mohammed Aariz (LKG)" },
-    { date: "01 Apr 2025", text: "Announcement posted: Summer Vacation Schedule" },
+    { label: "Total Students", value: counts.total },
+    { label: "Pre-KG", value: counts.prekg },
+    { label: "LKG", value: counts.lkg },
+    { label: "UKG", value: counts.ukg },
+    { label: "Active Faculty", value: counts.staff },
   ];
 
   return (
     <div>
-      <h2 className="section-title">Dashboard</h2>
-      <p className="text-sm text-slate-700 mb-5" style={{ fontFamily: "Inter, sans-serif" }}>
-        Total Students: <strong>{STUDENTS.length}</strong> &nbsp;|&nbsp; Pre-KG: <strong>{prekg}</strong> &nbsp;|&nbsp; LKG: <strong>{lkg}</strong> &nbsp;|&nbsp; UKG: <strong>{ukg}</strong> &nbsp;|&nbsp; Staff: <strong>{STAFF.length}</strong>
-      </p>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
-        {boxes.map(b => (
-          <div key={b.label} className="border border-slate-200 rounded-xl p-4 bg-white">
-            <p className="text-2xl font-bold text-slate-900" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{b.value}</p>
-            <p className="text-slate-500 text-xs mt-1" style={{ fontFamily: "Inter, sans-serif" }}>{b.label}</p>
+      <SectionTitle>Dashboard</SectionTitle>
+      {loading ? <p className="text-slate-500 text-sm">Loading...</p> : (
+        <>
+          <p className="text-sm text-slate-600 mb-5" style={{ fontFamily: "Inter,sans-serif" }}>
+            Total Students: <strong>{counts.total}</strong> &nbsp;|&nbsp; Pre-KG: <strong>{counts.prekg}</strong> &nbsp;|&nbsp; LKG: <strong>{counts.lkg}</strong> &nbsp;|&nbsp; UKG: <strong>{counts.ukg}</strong> &nbsp;|&nbsp; Faculty: <strong>{counts.staff}</strong>
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
+            {boxes.map(b => (
+              <div key={b.label} className="border border-slate-200 rounded-xl p-4 bg-white">
+                <p className="text-2xl font-bold text-slate-900" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{b.value}</p>
+                <p className="text-slate-500 text-xs mt-1" style={{ fontFamily: "Inter,sans-serif" }}>{b.label}</p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div>
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Recent Activity</p>
-        <div className="divide-y divide-slate-100">
-          {activity.map((a, i) => (
-            <div key={i} className="py-2.5 flex items-start gap-3">
-              <span className="text-xs text-slate-400 flex-shrink-0 w-24" style={{ fontFamily: "Inter, sans-serif" }}>{a.date}</span>
-              <span className="text-sm text-slate-700" style={{ fontFamily: "Inter, sans-serif" }}>{a.text}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Recent Activity</p>
+          <div className="divide-y divide-slate-100">
+            {activity.map((a, i) => (
+              <div key={i} className="py-2.5 flex items-start gap-3">
+                <span className="text-xs text-slate-400 flex-shrink-0 w-28" style={{ fontFamily: "Inter,sans-serif" }}>{a.date}</span>
+                <span className="text-sm text-slate-700" style={{ fontFamily: "Inter,sans-serif" }}>{a.text}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 };
 
 // ─── STUDENTS ─────────────────────────────────────────────────────────────────
 const StudentsPanel = () => {
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("");
-  const [viewStudent, setViewStudent] = useState<any | null>(null);
+  const [viewStudent, setViewStudent] = useState<Student | null>(null);
   const [addMode, setAddMode] = useState(false);
-  const [students, setStudents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ 
-    name: "", class: "Pre-KG", section: "A", gender: "Male", dob: "", nationality: "Indian", religion: "Hindu", caste: "OC", mobile: "", email: "", aadhar: "", admissionNo: "", rollNo: "",
+  const blankForm = {
+    name: "", class: "Pre-KG", section: "A", gender: "Male", dob: "", nationality: "Indian",
+    religion: "Hindu", caste: "OC", mobile: "", email: "", aadhar: "", admissionNo: "", rollNo: "",
     fatherName: "", fatherOcc: "", fatherMobile: "", fatherEmail: "", fatherAadhar: "",
     motherName: "", motherOcc: "", motherMobile: "", motherEmail: "", motherAadhar: "",
     corrAddress: "", permAddress: "", annualIncome: "",
     guardianEnabled: false, guardianName: "", guardianOcc: "", guardianMobile: "", guardianEmail: "", guardianAddress: "", guardianAadhar: ""
-  });
+  };
+  const [form, setForm] = useState(blankForm);
+  const [saving, setSaving] = useState(false);
 
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('students').select('*').order('created_at', { ascending: false });
-    if (!error && data) setStudents(data);
+    const { data } = await supabase.from("students").select("*").order("created_at", { ascending: false });
+    setStudents((data as Student[]) || []);
     setLoading(false);
-  };
+  }, []);
 
-  useState(() => { fetchStudents(); });
-
-  const handleAddStudent = async () => {
-    try {
-      const { data, error } = await supabase.from('students').insert([
-        { 
-          name: form.name, class: form.class, section: form.section, gender: form.gender, dob: form.dob || null, nationality: form.nationality, religion: form.religion, caste: form.caste, mobile_number: form.mobile, email: form.email, aadhar_number: form.aadhar, admission_no: form.admissionNo, roll_no: form.rollNo,
-          father_name: form.fatherName, father_occupation: form.fatherOcc, father_mobile_number: form.fatherMobile, father_email_id: form.fatherEmail, father_aadhar_number: form.fatherAadhar,
-          mother_name: form.motherName, mother_occupation: form.motherOcc, mother_mobile_number: form.motherMobile, mother_email_id: form.motherEmail, mother_aadhar_number: form.motherAadhar,
-          correspondence_address: form.corrAddress, permanent_address: form.permAddress, annual_income: form.annualIncome,
-          guardian_enabled: form.guardianEnabled, guardian_name: form.guardianName, guardian_occupation: form.guardianOcc, guardian_mobile_number: form.guardianMobile, guardian_mail_id: form.guardianEmail, guardian_address: form.guardianAddress, guardian_aadhar_number: form.guardianAadhar,
-          status: 'Active', password: 'password123'
-        }
-      ]);
-      if (error) throw error;
-      toast.success("Student added successfully!");
-      setAddMode(false);
-      fetchStudents();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to add student.");
-    }
-  };
+  useEffect(() => { fetchStudents(); }, [fetchStudents]);
 
   const filtered = students.filter(s =>
-    (!search || s.name.toLowerCase().includes(search.toLowerCase()) || (s.admission_no && s.admission_no.toLowerCase().includes(search.toLowerCase()))) &&
+    (!search || s.name.toLowerCase().includes(search.toLowerCase()) || s.admission_no?.toLowerCase().includes(search.toLowerCase())) &&
     (!classFilter || s.class === classFilter)
   );
 
-  if (viewStudent) {
-    return (
-      <div>
-        <div className="flex items-center gap-3 mb-5">
-          <button onClick={() => setViewStudent(null)} className="text-[#F97316] text-sm font-medium hover:underline">← Back to List</button>
-          <span className="text-slate-300">|</span>
-          <h2 className="font-bold text-slate-900 text-sm uppercase tracking-wide" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{viewStudent.name}</h2>
-        </div>
-        <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden bg-white">
-          <div className="p-5">
-            <p className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 block border-b border-slate-100 pb-2" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>BIO-DATA</p>
-            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-y-3 gap-x-6">
-              {[["Admission No.", viewStudent.admission_no], ["Roll No.", viewStudent.roll_no], ["Class", `${viewStudent.class} – ${viewStudent.section}`], ["Gender", viewStudent.gender], ["DOB", viewStudent.dob], ["Mobile", viewStudent.mobile_number], ["Email", viewStudent.email], ["Aadhar", viewStudent.aadhar_number], ["Religion/Caste", `${viewStudent.religion||''} ${viewStudent.caste||''}`]].map(([l, v]) => (
-                <div key={l as string}>
-                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">{l}</p>
-                  <p className="text-sm font-medium text-slate-800">{v || "—"}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="p-5">
-            <p className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 block border-b border-slate-100 pb-2" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>PARENT DETAILS</p>
-            <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-y-3 gap-x-6">
-              {[["Father", viewStudent.father_name], ["Father Occ.", viewStudent.father_occupation], ["Father Mobile", viewStudent.father_mobile_number], ["Father Aadhar", viewStudent.father_aadhar_number], ["Mother", viewStudent.mother_name], ["Mother Occ.", viewStudent.mother_occupation], ["Mother Mobile", viewStudent.mother_mobile_number], ["Mother Aadhar", viewStudent.mother_aadhar_number], ["Annual Income", viewStudent.annual_income]].map(([l, v]) => (
-                <div key={l as string}>
-                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">{l}</p>
-                  <p className="text-sm font-medium text-slate-800">{v || "—"}</p>
-                </div>
-              ))}
-            </div>
-            <div className="grid sm:grid-cols-2 mt-4 gap-6">
-              <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">Correspondence Address</p><p className="text-sm font-medium text-slate-800">{viewStudent.correspondence_address || "—"}</p></div>
-              <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">Permanent Address</p><p className="text-sm font-medium text-slate-800">{viewStudent.permanent_address || "—"}</p></div>
-            </div>
-          </div>
-          {viewStudent.guardian_enabled && (
-            <div className="p-5">
-              <p className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 block border-b border-slate-100 pb-2" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>GUARDIAN DETAILS</p>
-              <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-y-3 gap-x-6">
-                {[["Name", viewStudent.guardian_name], ["Occupation", viewStudent.guardian_occupation], ["Mobile", viewStudent.guardian_mobile_number], ["Email", viewStudent.guardian_mail_id], ["Aadhar", viewStudent.guardian_aadhar_number]].map(([l, v]) => (
-                  <div key={l as string}>
-                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">{l}</p>
-                    <p className="text-sm font-medium text-slate-800">{v || "—"}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+  const handleAdd = async () => {
+    if (!form.name || !form.admissionNo) { toast.error("Name and Admission No. are required."); return; }
+    setSaving(true);
+    const { error } = await supabase.from("students").insert([{
+      admission_no: form.admissionNo.toUpperCase(), roll_no: form.rollNo, name: form.name,
+      class: form.class, section: form.section, gender: form.gender, dob: form.dob || null,
+      nationality: form.nationality, religion: form.religion, caste: form.caste,
+      mobile_number: form.mobile, email: form.email, aadhar_number: form.aadhar,
+      father_name: form.fatherName, father_occupation: form.fatherOcc, father_mobile_number: form.fatherMobile, father_email_id: form.fatherEmail, father_aadhar_number: form.fatherAadhar,
+      mother_name: form.motherName, mother_occupation: form.motherOcc, mother_mobile_number: form.motherMobile, mother_email_id: form.motherEmail, mother_aadhar_number: form.motherAadhar,
+      correspondence_address: form.corrAddress, permanent_address: form.permAddress, annual_income: form.annualIncome,
+      guardian_enabled: form.guardianEnabled, guardian_name: form.guardianName, guardian_occupation: form.guardianOcc,
+      guardian_mobile_number: form.guardianMobile, guardian_mail_id: form.guardianEmail,
+      guardian_address: form.guardianAddress, guardian_aadhar_number: form.guardianAadhar,
+      status: "Active", password: "password123",
+    }]);
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Student added!");
+    setAddMode(false); setForm(blankForm); fetchStudents();
+  };
+
+  const toggleStatus = async (s: Student) => {
+    const ns = s.status === "Active" ? "Inactive" : "Active";
+    await supabase.from("students").update({ status: ns }).eq("id", s.id);
+    fetchStudents();
+    toast.success(`Student marked as ${ns}.`);
+  };
+
+  if (viewStudent) return (
+    <div>
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={() => setViewStudent(null)} className="text-[#F97316] text-sm font-medium hover:underline">← Back</button>
+        <span className="text-slate-300">|</span>
+        <span className="font-bold text-slate-800 text-sm uppercase tracking-wide" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{viewStudent.name}</span>
       </div>
-    );
-  }
+      <div className="border border-slate-200 rounded-xl overflow-hidden bg-white divide-y divide-slate-100">
+        {[
+          { title: "Bio-Data", rows: [["Name", viewStudent.name], ["Admission No.", viewStudent.admission_no], ["Roll No.", viewStudent.roll_no], ["Class", `${viewStudent.class} – ${viewStudent.section}`], ["Gender", viewStudent.gender], ["DOB", viewStudent.dob], ["Mobile", viewStudent.mobile_number], ["Email", viewStudent.email], ["Aadhar", viewStudent.aadhar_number], ["Nationality", viewStudent.nationality], ["Religion / Caste", `${viewStudent.religion} ${viewStudent.caste}`], ["Joining Date", viewStudent.joining_date], ["Status", viewStudent.status]] },
+          { title: "Parent Details", rows: [["Father", viewStudent.father_name], ["Father Occ.", viewStudent.father_occupation], ["Father Mobile", viewStudent.father_mobile_number], ["Father Email", viewStudent.father_email_id], ["Father Aadhar", viewStudent.father_aadhar_number], ["Mother", viewStudent.mother_name], ["Mother Occ.", viewStudent.mother_occupation], ["Mother Mobile", viewStudent.mother_mobile_number], ["Mother Email", viewStudent.mother_email_id], ["Mother Aadhar", viewStudent.mother_aadhar_number], ["Annual Income", viewStudent.annual_income], ["Current Address", viewStudent.correspondence_address], ["Permanent Address", viewStudent.permanent_address]] },
+          ...(viewStudent.guardian_enabled ? [{ title: "Guardian Details", rows: [["Name", viewStudent.guardian_name], ["Occupation", viewStudent.guardian_occupation], ["Mobile", viewStudent.guardian_mobile_number], ["Email", viewStudent.guardian_mail_id], ["Aadhar", viewStudent.guardian_aadhar_number], ["Address", viewStudent.guardian_address]] }] : []),
+        ].map(sec => (
+          <div key={sec.title} className="p-5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 pb-2 border-b border-slate-100" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{sec.title}</p>
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-y-3 gap-x-6">
+              {(sec.rows as [string, string][]).map(([l, v]) => (
+                <div key={l}>
+                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">{l}</p>
+                  <p className="text-sm font-medium text-slate-800">{v || "—"}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 mb-5">
-        <h2 className="section-title mb-0">Students</h2>
+        <SectionTitle>Students</SectionTitle>
         <div className="flex-1" />
-        <button onClick={() => setAddMode(!addMode)} className="btn-primary text-sm px-4 py-2 rounded-lg">+ Add New Student</button>
-        <button className="border border-slate-300 text-slate-600 font-semibold text-sm px-4 py-2 rounded-lg hover:bg-slate-50">Export CSV</button>
+        <button onClick={() => setAddMode(v => !v)} className="bg-[#F97316] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#ea580c]">+ Add Student</button>
+        <button onClick={() => { const csv = students.map(s => `${s.admission_no},${s.name},${s.class},${s.roll_no},${s.status}`).join("\n"); const b = new Blob([`Admission No,Name,Class,Roll No,Status\n${csv}`], { type: "text/csv" }); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "students.csv"; a.click(); }} className="border border-slate-300 text-slate-600 text-xs font-bold px-4 py-2 rounded-lg hover:bg-slate-50">Export CSV</button>
       </div>
       <div className="flex gap-3 mb-4 flex-wrap">
-        <input type="text" placeholder="Search name or admission no." value={search} onChange={e => setSearch(e.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-40 focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-          style={{ fontFamily: "Inter, sans-serif" }} />
-        <select value={classFilter} onChange={e => setClassFilter(e.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-          style={{ fontFamily: "Inter, sans-serif" }}>
+        <input type="text" placeholder="Search name or admission no." value={search} onChange={e => setSearch(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-40 focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter,sans-serif" }} />
+        <select value={classFilter} onChange={e => setClassFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter,sans-serif" }}>
           <option value="">All Classes</option>
-          {["Pre-KG","LKG","UKG"].map(c => <option key={c}>{c}</option>)}
+          {["Pre-KG", "LKG", "UKG"].map(c => <option key={c}>{c}</option>)}
         </select>
       </div>
+
       {addMode && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-5 space-y-6">
-          <div className="flex justify-between items-center"><p className="font-bold text-[#F97316] text-sm uppercase tracking-wide">Register New Student</p><button onClick={() => setAddMode(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button></div>
-          
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-5 space-y-5">
+          <div className="flex justify-between items-center">
+            <p className="font-bold text-[#F97316] text-xs uppercase tracking-widest" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Register New Student</p>
+            <button onClick={() => setAddMode(false)}><X className="w-4 h-4 text-slate-400" /></button>
+          </div>
           <div>
-            <p className="text-xs font-bold text-slate-800 mb-2 pb-1 border-b border-slate-200">1. Student Personal Details</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 pb-1 border-b border-slate-200" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>1 — Student Details</p>
             <div className="grid sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {[
-                {l:"Name", k:"name"}, {l:"Admission No", k:"admissionNo"}, {l:"Roll No", k:"rollNo"}, {l:"Class", k:"class", type:"select", opts:["Pre-KG","LKG","UKG","1st Grade"]}, {l:"Section", k:"section", type:"select", opts:["A","B","C"]}, {l:"Gender", k:"gender", type:"select", opts:["Male","Female"]}, {l:"DOB", k:"dob", type:"date"}, {l:"Nationality", k:"nationality"}, {l:"Religion", k:"religion"}, {l:"Caste", k:"caste"}, {l:"Mobile", k:"mobile"}, {l:"Email", k:"email"}, {l:"Aadhar No.", k:"aadhar"}
-              ].map(f => (
-                <div key={f.k}>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">{f.l}</label>
-                  {f.type === "select" ? (
-                    <select value={(form as any)[f.k]} onChange={e=>setForm({...form, [f.k]: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:ring-[#F97316]/30 focus:outline-none bg-white">
-                      {f.opts?.map(o => <option key={o}>{o}</option>)}
-                    </select>
-                  ) : (
-                    <input type={f.type||"text"} value={(form as any)[f.k]} onChange={e=>setForm({...form, [f.k]: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:ring-[#F97316]/30 focus:outline-none bg-white" />
-                  )}
-                </div>
-              ))}
+              <Inp label="Full Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              <Inp label="Admission No. *" value={form.admissionNo} onChange={e => setForm({ ...form, admissionNo: e.target.value })} />
+              <Inp label="Roll No." value={form.rollNo} onChange={e => setForm({ ...form, rollNo: e.target.value })} />
+              <Sel label="Class *" value={form.class} onChange={e => setForm({ ...form, class: e.target.value })}>
+                {["Pre-KG", "LKG", "UKG"].map(c => <option key={c}>{c}</option>)}
+              </Sel>
+              <Sel label="Section" value={form.section} onChange={e => setForm({ ...form, section: e.target.value })}>
+                {["A", "B", "C"].map(s => <option key={s}>{s}</option>)}
+              </Sel>
+              <Sel label="Gender" value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value })}>
+                <option>Male</option><option>Female</option>
+              </Sel>
+              <Inp label="Date of Birth" type="date" value={form.dob} onChange={e => setForm({ ...form, dob: e.target.value })} />
+              <Inp label="Nationality" value={form.nationality} onChange={e => setForm({ ...form, nationality: e.target.value })} />
+              <Inp label="Religion" value={form.religion} onChange={e => setForm({ ...form, religion: e.target.value })} />
+              <Inp label="Caste" value={form.caste} onChange={e => setForm({ ...form, caste: e.target.value })} />
+              <Inp label="Mobile" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} />
+              <Inp label="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+              <Inp label="Aadhar No." value={form.aadhar} onChange={e => setForm({ ...form, aadhar: e.target.value })} />
             </div>
           </div>
-
           <div>
-            <p className="text-xs font-bold text-slate-800 mb-2 pb-1 border-b border-slate-200">2. Parent Details</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 pb-1 border-b border-slate-200" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>2 — Parent Details</p>
             <div className="grid sm:grid-cols-2 md:grid-cols-5 gap-3">
-              {[
-                {l:"Father Name", k:"fatherName"}, {l:"Occupation", k:"fatherOcc"}, {l:"Mobile", k:"fatherMobile"}, {l:"Email", k:"fatherEmail"}, {l:"Aadhar", k:"fatherAadhar"},
-                {l:"Mother Name", k:"motherName"}, {l:"Occupation", k:"motherOcc"}, {l:"Mobile", k:"motherMobile"}, {l:"Email", k:"motherEmail"}, {l:"Aadhar", k:"motherAadhar"},
-                {l:"Correspondence Address", k:"corrAddress", cls:"md:col-span-2"}, {l:"Permanent Address", k:"permAddress", cls:"md:col-span-2"}, {l:"Annual Income", k:"annualIncome"}
-              ].map(f => (
-                <div key={f.k} className={f.cls}>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">{f.l}</label>
-                  <input value={(form as any)[f.k]} onChange={e=>setForm({...form, [f.k]: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:ring-[#F97316]/30 focus:outline-none bg-white"/>
-                </div>
-              ))}
+              <Inp label="Father Name" value={form.fatherName} onChange={e => setForm({ ...form, fatherName: e.target.value })} />
+              <Inp label="Occupation" value={form.fatherOcc} onChange={e => setForm({ ...form, fatherOcc: e.target.value })} />
+              <Inp label="Mobile" value={form.fatherMobile} onChange={e => setForm({ ...form, fatherMobile: e.target.value })} />
+              <Inp label="Email" value={form.fatherEmail} onChange={e => setForm({ ...form, fatherEmail: e.target.value })} />
+              <Inp label="Aadhar" value={form.fatherAadhar} onChange={e => setForm({ ...form, fatherAadhar: e.target.value })} />
+              <Inp label="Mother Name" value={form.motherName} onChange={e => setForm({ ...form, motherName: e.target.value })} />
+              <Inp label="Occupation" value={form.motherOcc} onChange={e => setForm({ ...form, motherOcc: e.target.value })} />
+              <Inp label="Mobile" value={form.motherMobile} onChange={e => setForm({ ...form, motherMobile: e.target.value })} />
+              <Inp label="Email" value={form.motherEmail} onChange={e => setForm({ ...form, motherEmail: e.target.value })} />
+              <Inp label="Aadhar" value={form.motherAadhar} onChange={e => setForm({ ...form, motherAadhar: e.target.value })} />
+              <div className="md:col-span-2"><Inp label="Correspondence Address" value={form.corrAddress} onChange={e => setForm({ ...form, corrAddress: e.target.value })} /></div>
+              <div className="md:col-span-2"><Inp label="Permanent Address" value={form.permAddress} onChange={e => setForm({ ...form, permAddress: e.target.value })} /></div>
+              <Inp label="Annual Income" value={form.annualIncome} onChange={e => setForm({ ...form, annualIncome: e.target.value })} />
             </div>
           </div>
-
           <div>
-            <label className="flex items-center gap-2 mb-2 pb-1 border-b border-slate-200 cursor-pointer w-fit">
-              <input type="checkbox" checked={form.guardianEnabled} onChange={e=>setForm({...form, guardianEnabled: e.target.checked})} className="accent-[#F97316]" />
-              <p className="text-xs font-bold text-slate-800">3. Guardian Details <span className="font-normal text-slate-500">(Check if applicable)</span></p>
+            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+              <input type="checkbox" checked={form.guardianEnabled} onChange={e => setForm({ ...form, guardianEnabled: e.target.checked })} className="accent-[#F97316]" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>3 — Guardian Details (if applicable)</p>
             </label>
             {form.guardianEnabled && (
               <div className="grid sm:grid-cols-2 md:grid-cols-5 gap-3">
-                {[
-                  {l:"Guardian Name", k:"guardianName"}, {l:"Occupation", k:"guardianOcc"}, {l:"Mobile", k:"guardianMobile"}, {l:"Email", k:"guardianEmail"}, {l:"Aadhar", k:"guardianAadhar"}, {l:"Guardian Address", k:"guardianAddress", cls:"md:col-span-5"}
-                ].map(f => (
-                  <div key={f.k} className={f.cls}>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">{f.l}</label>
-                    <input value={(form as any)[f.k]} onChange={e=>setForm({...form, [f.k]: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:ring-[#F97316]/30 focus:outline-none bg-white"/>
-                  </div>
-                ))}
+                <Inp label="Guardian Name" value={form.guardianName} onChange={e => setForm({ ...form, guardianName: e.target.value })} />
+                <Inp label="Occupation" value={form.guardianOcc} onChange={e => setForm({ ...form, guardianOcc: e.target.value })} />
+                <Inp label="Mobile" value={form.guardianMobile} onChange={e => setForm({ ...form, guardianMobile: e.target.value })} />
+                <Inp label="Email" value={form.guardianEmail} onChange={e => setForm({ ...form, guardianEmail: e.target.value })} />
+                <Inp label="Aadhar" value={form.guardianAadhar} onChange={e => setForm({ ...form, guardianAadhar: e.target.value })} />
+                <div className="md:col-span-5"><Inp label="Address" value={form.guardianAddress} onChange={e => setForm({ ...form, guardianAddress: e.target.value })} /></div>
               </div>
             )}
           </div>
-
-          <div className="flex gap-3 justify-end pt-2 border-t border-slate-200">
-            <button onClick={() => setAddMode(false)} className="border border-slate-300 text-slate-600 font-bold text-xs px-5 py-2.5 rounded-lg hover:bg-slate-100 transition-colors">Cancel</button>
-            <button onClick={handleAddStudent} className="bg-[#F97316] text-white font-bold text-xs px-6 py-2.5 rounded-lg shadow-sm hover:bg-[#ea580c] transition-colors">Save Student Account</button>
+          <div className="flex gap-3 pt-2 border-t border-slate-200">
+            <button onClick={handleAdd} disabled={saving} className="bg-[#F97316] text-white font-bold text-xs px-6 py-2.5 rounded-lg hover:bg-[#ea580c] disabled:opacity-60">{saving ? "Saving…" : "Save Student"}</button>
+            <button onClick={() => { setAddMode(false); setForm(blankForm); }} className="border border-slate-300 text-slate-600 font-bold text-xs px-5 py-2.5 rounded-lg hover:bg-slate-50">Cancel</button>
           </div>
         </div>
       )}
-      
-      {loading ? (
-        <div className="py-10 text-center text-slate-500 text-sm font-medium">Loading database records...</div>
-      ) : (
+
+      {loading ? <p className="text-slate-500 text-sm py-6">Loading students from database…</p> : (
         <div className="overflow-x-auto">
           <table className="portal-table">
             <thead><tr><th>#</th><th>Name</th><th>Class</th><th>Roll No.</th><th>Admission No.</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
-              {filtered.length === 0 && <tr><td colSpan={7} className="text-center py-4 text-slate-500">No students found.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">No students found.</td></tr>}
               {filtered.map((s, i) => (
                 <tr key={s.id}>
                   <td>{i + 1}</td>
@@ -282,9 +328,9 @@ const StudentsPanel = () => {
                   <td>{s.roll_no}</td>
                   <td>{s.admission_no}</td>
                   <td><span className={s.status === "Active" ? "status-present" : "status-absent"}>{s.status}</span></td>
-                  <td>
-                    <button onClick={() => setViewStudent(s)} className="text-[#F97316] text-xs font-medium hover:underline mr-3">View</button>
-                    <button className="text-slate-600 hover:text-slate-900 text-xs font-medium hover:underline">Edit</button>
+                  <td className="flex gap-3">
+                    <button onClick={() => setViewStudent(s)} className="text-[#F97316] text-xs font-medium hover:underline">View</button>
+                    <button onClick={() => toggleStatus(s)} className="text-slate-500 text-xs font-medium hover:underline">{s.status === "Active" ? "Deactivate" : "Activate"}</button>
                   </td>
                 </tr>
               ))}
@@ -296,59 +342,92 @@ const StudentsPanel = () => {
   );
 };
 
-// ─── ATTENDANCE ADMIN ─────────────────────────────────────────────────────────
+// ─── ATTENDANCE (Admin + Faculty) ─────────────────────────────────────────────
 const AttendanceAdminPanel = () => {
   const [selClass, setSelClass] = useState("Pre-KG");
-  const [selDate, setSelDate] = useState("2025-03-15");
+  const [selDate, setSelDate] = useState(new Date().toISOString().split("T")[0]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [marks, setMarks] = useState<Record<string, string>>({});
+  const [existing, setExisting] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const students = STUDENTS.filter(s => s.class === selClass);
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data: stData } = await supabase.from("students").select("id,name,roll_no,class,section").eq("class", selClass).order("roll_no");
+    const { data: attData } = await supabase.from("attendance").select("student_id,status").eq("date", selDate);
+    const stList = (stData as Student[]) || [];
+    const attMap: Record<string, string> = {};
+    (attData || []).forEach(a => { attMap[a.student_id] = a.status; });
+    setStudents(stList);
+    setExisting(attMap);
+    setMarks(attMap);
+    setLoading(false);
+  }, [selClass, selDate]);
+
+  useEffect(() => { load(); }, [load]);
+
   const markAll = (status: string) => {
     const m: Record<string, string> = {};
     students.forEach(s => { m[s.id] = status; });
     setMarks(m);
   };
 
+  const save = async () => {
+    setSaving(true);
+    const upserts = students.filter(s => marks[s.id]).map(s => ({
+      student_id: s.id, date: selDate, status: marks[s.id],
+    }));
+    if (upserts.length === 0) { toast.error("No attendance marked."); setSaving(false); return; }
+    const { error } = await supabase.from("attendance").upsert(upserts, { onConflict: "student_id,date" });
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`Attendance saved for ${selDate}`);
+    setExisting({ ...marks });
+  };
+
+  const statusColors: Record<string, string> = { P: "text-emerald-600", A: "text-red-500", L: "text-indigo-500", H: "text-slate-400" };
+
   return (
     <div>
-      <h2 className="section-title">Attendance</h2>
+      <SectionTitle>Attendance</SectionTitle>
       <div className="flex flex-wrap gap-3 mb-5">
-        <input type="date" value={selDate} onChange={e => setSelDate(e.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-          style={{ fontFamily: "Inter, sans-serif" }} />
-        <select value={selClass} onChange={e => setSelClass(e.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-          style={{ fontFamily: "Inter, sans-serif" }}>
-          {["Pre-KG","LKG","UKG"].map(c => <option key={c}>{c}</option>)}
+        <input type="date" value={selDate} onChange={e => setSelDate(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter,sans-serif" }} />
+        <select value={selClass} onChange={e => setSelClass(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter,sans-serif" }}>
+          {["Pre-KG", "LKG", "UKG"].map(c => <option key={c}>{c}</option>)}
         </select>
-        <button onClick={() => markAll("P")} className="text-[#F97316] text-sm font-medium hover:underline">Mark All Present</button>
+        <button onClick={() => markAll("P")} className="text-emerald-600 text-sm font-medium hover:underline">Mark All Present</button>
+        <button onClick={() => markAll("A")} className="text-red-500 text-sm font-medium hover:underline">Mark All Absent</button>
       </div>
-      <table className="portal-table mb-5">
-        <thead><tr><th>#</th><th>Name</th><th>Roll No.</th><th>Mark Attendance</th></tr></thead>
-        <tbody>
-          {students.map((s, i) => (
-            <tr key={s.id}>
-              <td>{i + 1}</td>
-              <td className="font-medium">{s.name}</td>
-              <td>{s.rollNo}</td>
-              <td>
-                <div className="flex gap-3">
-                  {["P","A","L"].map(status => (
-                    <label key={status} className={`flex items-center gap-1 cursor-pointer text-sm font-bold ${{"P":"text-[#F97316]","A":"text-[#F97316]","L":"text-[#4F46E5]"}[status]}`}>
-                      <input type="radio" name={`att-${s.id}`} value={status}
-                        checked={marks[s.id] === status}
-                        onChange={() => setMarks({ ...marks, [s.id]: status })}
-                        className="accent-current" />
-                      {status}
-                    </label>
-                  ))}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <button onClick={() => toast.success("Attendance saved for " + selDate)} className="btn-primary text-sm px-5 py-2.5 rounded-lg">Save Attendance</button>
+      {loading ? <p className="text-slate-400 text-sm">Loading…</p> : (
+        <>
+          <table className="portal-table mb-5">
+            <thead><tr><th>#</th><th>Name</th><th>Roll No.</th><th>Mark (P / A / L / H)</th><th>Saved</th></tr></thead>
+            <tbody>
+              {students.map((s, i) => (
+                <tr key={s.id}>
+                  <td>{i + 1}</td>
+                  <td className="font-medium">{s.name}</td>
+                  <td>{s.roll_no}</td>
+                  <td>
+                    <div className="flex gap-4">
+                      {["P", "A", "L", "H"].map(st => (
+                        <label key={st} className={`flex items-center gap-1 cursor-pointer text-xs font-bold ${statusColors[st]}`}>
+                          <input type="radio" name={`att-${s.id}`} value={st} checked={marks[s.id] === st} onChange={() => setMarks({ ...marks, [s.id]: st })} className="accent-current" />
+                          {st}
+                        </label>
+                      ))}
+                    </div>
+                  </td>
+                  <td>{existing[s.id] ? <span className={`text-xs font-bold ${statusColors[existing[s.id]]}`}>{existing[s.id]}</span> : <span className="text-slate-300 text-xs">—</span>}</td>
+                </tr>
+              ))}
+              {students.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-slate-400">No students in this class.</td></tr>}
+            </tbody>
+          </table>
+          <button onClick={save} disabled={saving} className="bg-[#F97316] text-white font-bold text-xs px-6 py-2.5 rounded-lg hover:bg-[#ea580c] disabled:opacity-60">{saving ? "Saving…" : "Save Attendance"}</button>
+        </>
+      )}
     </div>
   );
 };
@@ -356,85 +435,108 @@ const AttendanceAdminPanel = () => {
 // ─── FEE MANAGEMENT ──────────────────────────────────────────────────────────
 const FeeManagementPanel = () => {
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"student" | "outstanding">("student");
-  const [payForm, setPayForm] = useState({ amount: "", date: "", receipt: "", method: "" });
-  const [showPayForm, setShowPayForm] = useState(false);
+  const [student, setStudent] = useState<Student | null>(null);
+  const [fees, setFees] = useState<any[]>([]);
+  const [outstanding, setOutstanding] = useState<any[]>([]);
+  const [tab, setTab] = useState<"student" | "outstanding">("student");
+  const [payForm, setPayForm] = useState({ amount: "", date: "", receipt: "", method: "Cash" });
+  const [showPay, setShowPay] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const student = selectedId ? STUDENTS.find(s => s.admissionNo === selectedId.toUpperCase() || s.name.toLowerCase().includes(selectedId.toLowerCase())) : null;
-  const fees = student ? FEES.filter(f => f.studentId === student.id) : [];
-  const outstanding = STUDENTS.map(s => {
-    const studentFees = FEES.filter(f => f.studentId === s.id);
-    const balance = studentFees.filter(f => f.status === "Pending").reduce((acc, f) => acc + f.amount, 0);
-    return { student: s, balance };
-  }).filter(x => x.balance > 0).sort((a, b) => b.balance - a.balance);
+  const searchStudent = async () => {
+    if (!search) return;
+    setLoading(true);
+    const { data } = await supabase.from("students").select("*").or(`admission_no.ilike.%${search}%,name.ilike.%${search}%`).limit(1).single();
+    if (data) {
+      setStudent(data as Student);
+      const { data: fData } = await supabase.from("fees").select("*").eq("student_id", data.id).order("due_date");
+      setFees(fData || []);
+    } else {
+      toast.error("Student not found."); setStudent(null); setFees([]);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (tab === "outstanding") {
+      supabase.from("fees").select("*, students(name,class,admission_no)").eq("status", "Pending").order("due_date").then(({ data }) => setOutstanding(data || []));
+    }
+  }, [tab]);
+
+  const addPayment = async () => {
+    if (!student || !payForm.amount) { toast.error("Fill in amount."); return; }
+    setSaving(true);
+    const { error } = await supabase.from("fees").insert([{
+      student_id: student.id, term: "General", type: "Payment", amount: Number(payForm.amount),
+      due_date: payForm.date || new Date().toISOString().split("T")[0], paid_on: payForm.date || new Date().toISOString().split("T")[0],
+      status: "Paid",
+    }]);
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Payment recorded!");
+    setShowPay(false); setPayForm({ amount: "", date: "", receipt: "", method: "Cash" });
+    const { data: fData } = await supabase.from("fees").select("*").eq("student_id", student.id);
+    setFees(fData || []);
+  };
+
+  const total = fees.reduce((s, f) => s + Number(f.amount), 0);
+  const paid = fees.filter(f => f.status === "Paid").reduce((s, f) => s + Number(f.amount), 0);
 
   return (
     <div>
-      <h2 className="section-title">Fee Management</h2>
+      <SectionTitle>Fee Management</SectionTitle>
       <div className="flex gap-2 mb-5">
-        <button onClick={() => setActiveTab("student")} className={`px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg ${activeTab === "student" ? "bg-[#F97316] text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Student Fees</button>
-        <button onClick={() => setActiveTab("outstanding")} className={`px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg ${activeTab === "outstanding" ? "bg-[#F97316] text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Outstanding</button>
+        {(["student", "outstanding"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg ${tab === t ? "bg-[#F97316] text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"}`} style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{t === "student" ? "Student Fees" : "Outstanding"}</button>
+        ))}
       </div>
-
-      {activeTab === "student" && (
+      {tab === "student" && (
         <>
           <div className="flex gap-3 mb-4">
-            <input type="text" placeholder="Search student name or admission no." value={search} onChange={e => setSearch(e.target.value)}
-              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-              style={{ fontFamily: "Inter, sans-serif" }} />
-            <button onClick={() => setSelectedId(search)} className="btn-primary text-sm px-4 py-2 rounded-lg">Search</button>
+            <input type="text" placeholder="Name or admission no." value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && searchStudent()} className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter,sans-serif" }} />
+            <button onClick={searchStudent} className="bg-[#F97316] text-white font-bold text-xs px-4 py-2 rounded-lg">{loading ? "…" : "Search"}</button>
           </div>
           {student && (
             <>
-              <p className="text-sm font-semibold text-slate-700 mb-3" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{student.name} — {student.class} – {student.section}</p>
+              <p className="text-sm font-semibold text-slate-700 mb-2" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{student.name} — {student.class} | Total: ₹{total.toLocaleString()} | Paid: ₹{paid.toLocaleString()} | Due: <span className="text-[#F97316]">₹{(total - paid).toLocaleString()}</span></p>
               <table className="portal-table mb-4">
-                <thead><tr><th>Term</th><th>Fee Type</th><th>Amount</th><th>Due Date</th><th>Paid On</th><th>Status</th></tr></thead>
+                <thead><tr><th>Term</th><th>Type</th><th>Amount</th><th>Due</th><th>Paid On</th><th>Status</th></tr></thead>
                 <tbody>
                   {fees.map((f, i) => (
-                    <tr key={i}>
-                      <td>{f.term}</td><td>{f.type}</td><td>₹{f.amount.toLocaleString()}</td><td>{f.dueDate}</td>
-                      <td>{f.paidOn || "—"}</td>
+                    <tr key={i}><td>{f.term}</td><td>{f.type}</td><td>₹{Number(f.amount).toLocaleString()}</td><td>{f.due_date}</td><td>{f.paid_on || "—"}</td>
                       <td><span className={f.status === "Paid" ? "status-paid" : "status-pending"}>{f.status}</span></td>
                     </tr>
                   ))}
+                  {fees.length === 0 && <tr><td colSpan={6} className="text-center py-3 text-slate-400">No fee records yet.</td></tr>}
                 </tbody>
               </table>
-              <button onClick={() => setShowPayForm(!showPayForm)} className="btn-primary text-sm px-4 py-2 rounded-lg mb-3">+ Add Payment</button>
-              {showPayForm && (
+              <button onClick={() => setShowPay(v => !v)} className="bg-[#F97316] text-white font-bold text-xs px-4 py-2 rounded-lg mb-3">+ Add Payment</button>
+              {showPay && (
                 <div className="border border-slate-200 rounded-xl p-4 mb-4 bg-slate-50 grid sm:grid-cols-2 gap-3">
-                  {[{ label: "Amount (₹)", key: "amount" }, { label: "Date", key: "date" }, { label: "Receipt No.", key: "receipt" }, { label: "Payment Method", key: "method" }].map(f => (
-                    <div key={f.key}>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{f.label}</label>
-                      <input value={payForm[f.key as keyof typeof payForm]} onChange={e => setPayForm({ ...payForm, [f.key]: e.target.value })}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-                        style={{ fontFamily: "Inter, sans-serif" }} />
-                    </div>
-                  ))}
+                  <Inp label="Amount (₹) *" value={payForm.amount} onChange={e => setPayForm({ ...payForm, amount: e.target.value })} type="number" />
+                  <Inp label="Date" value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} type="date" />
+                  <Inp label="Receipt No." value={payForm.receipt} onChange={e => setPayForm({ ...payForm, receipt: e.target.value })} />
+                  <Sel label="Method" value={payForm.method} onChange={e => setPayForm({ ...payForm, method: e.target.value })}>
+                    {["Cash", "Online", "Cheque", "DD"].map(m => <option key={m}>{m}</option>)}
+                  </Sel>
                   <div className="sm:col-span-2">
-                    <button onClick={() => { setShowPayForm(false); toast.success("Payment recorded!"); setPayForm({ amount: "", date: "", receipt: "", method: "" }); }}
-                      className="btn-primary text-sm px-4 py-2 rounded-lg">Save Payment</button>
+                    <button onClick={addPayment} disabled={saving} className="bg-[#F97316] text-white font-bold text-xs px-5 py-2 rounded-lg disabled:opacity-60">{saving ? "Saving…" : "Save Payment"}</button>
                   </div>
                 </div>
               )}
-              <button className="border border-slate-300 text-slate-600 font-semibold text-sm px-4 py-2 rounded-lg hover:bg-slate-50">Print Ledger</button>
             </>
           )}
         </>
       )}
-
-      {activeTab === "outstanding" && (
+      {tab === "outstanding" && (
         <table className="portal-table">
-          <thead><tr><th>#</th><th>Student</th><th>Class</th><th>Balance Due</th></tr></thead>
+          <thead><tr><th>#</th><th>Student</th><th>Class</th><th>Type</th><th>Amount</th><th>Due Date</th></tr></thead>
           <tbody>
-            {outstanding.map((x, i) => (
-              <tr key={x.student.id}>
-                <td>{i + 1}</td>
-                <td className="font-medium">{x.student.name}</td>
-                <td>{x.student.class}</td>
-                <td className="status-pending font-bold">₹{x.balance.toLocaleString()}</td>
-              </tr>
+            {outstanding.map((f, i) => (
+              <tr key={f.id}><td>{i + 1}</td><td className="font-medium">{(f.students as any)?.name || "—"}</td><td>{(f.students as any)?.class || "—"}</td><td>{f.type}</td><td className="status-pending font-bold">₹{Number(f.amount).toLocaleString()}</td><td>{f.due_date}</td></tr>
             ))}
+            {outstanding.length === 0 && <tr><td colSpan={6} className="text-center py-4 text-slate-400">No outstanding fees.</td></tr>}
           </tbody>
         </table>
       )}
@@ -442,77 +544,93 @@ const FeeManagementPanel = () => {
   );
 };
 
-// ─── REMARKS ADMIN ─────────────────────────────────────────────────────────────
+// ─── REMARKS (Admin + Faculty) ────────────────────────────────────────────────
 const RemarksAdminPanel = () => {
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [form, setForm] = useState({ category: "Academic", subject: "", remark: "", date: "" });
-  const [localRemarks, setLocalRemarks] = useState(REMARKS);
+  const [student, setStudent] = useState<Student | null>(null);
+  const [remarks, setRemarks] = useState<any[]>([]);
+  const [form, setForm] = useState({ category: "Academic", subject: "", remark: "" });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { adminUser } = useAuth();
 
-  const student = selectedId ? STUDENTS.find(s => s.name.toLowerCase().includes(selectedId.toLowerCase()) || s.admissionNo.toUpperCase() === selectedId.toUpperCase()) : null;
-  const studentRemarks = student ? localRemarks.filter(r => r.studentId === student.id) : [];
-
-  const addRemark = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!student) return;
-    setLocalRemarks([{ studentId: student.id, subject: form.subject, remark: form.remark, givenBy: "Admin", date: form.date || new Date().toLocaleDateString(), category: form.category as "Academic"|"Disciplinary"|"General" }, ...localRemarks]);
-    setForm({ category: "Academic", subject: "", remark: "", date: "" });
-    toast.success("Remark added!");
+  const searchStudent = async () => {
+    if (!search) return;
+    setLoading(true);
+    const { data } = await supabase.from("students").select("id,name,class,section,admission_no").or(`admission_no.ilike.%${search}%,name.ilike.%${search}%`).limit(1).single();
+    if (data) {
+      setStudent(data as Student);
+      const { data: rData } = await supabase.from("remarks").select("*").eq("student_id", data.id).order("created_at", { ascending: false });
+      setRemarks(rData || []);
+    } else {
+      toast.error("Student not found."); setStudent(null); setRemarks([]);
+    }
+    setLoading(false);
   };
+
+  const addRemark = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!student || !form.remark) return;
+    setSaving(true);
+    const { error } = await supabase.from("remarks").insert([{
+      student_id: student.id, category: form.category, subject: form.subject,
+      remark: form.remark, given_by: adminUser?.name || "Admin",
+      given_by_role: adminUser?.role || "admin",
+    }]);
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Remark added!");
+    setForm({ category: "Academic", subject: "", remark: "" });
+    const { data: rData } = await supabase.from("remarks").select("*").eq("student_id", student.id).order("created_at", { ascending: false });
+    setRemarks(rData || []);
+  };
+
+  const deleteRemark = async (id: string) => {
+    await supabase.from("remarks").delete().eq("id", id);
+    setRemarks(remarks.filter(r => r.id !== id));
+    toast.success("Remark deleted.");
+  };
+
+  const catColor: Record<string, string> = { Academic: "text-emerald-600", Disciplinary: "text-red-500", General: "text-indigo-500" };
 
   return (
     <div>
-      <h2 className="section-title">Remarks</h2>
+      <SectionTitle>Remarks</SectionTitle>
       <div className="flex gap-3 mb-4">
-        <input type="text" placeholder="Search student name or admission no." value={search} onChange={e => setSearch(e.target.value)}
-          className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-          style={{ fontFamily: "Inter, sans-serif" }} />
-        <button onClick={() => setSelectedId(search)} className="btn-primary text-sm px-4 py-2 rounded-lg">Search</button>
+        <input type="text" placeholder="Search student name or admission no." value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && searchStudent()} className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter,sans-serif" }} />
+        <button onClick={searchStudent} className="bg-[#F97316] text-white font-bold text-xs px-4 py-2 rounded-lg">{loading ? "…" : "Search"}</button>
       </div>
       {student && (
         <>
-          <p className="text-sm font-semibold text-slate-700 mb-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{student.name} — {student.class}</p>
+          <p className="text-sm font-semibold text-slate-700 mb-4" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{student.name} — {student.class}</p>
           <form onSubmit={addRemark} className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5 grid sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Category</label>
-              <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-                style={{ fontFamily: "Inter, sans-serif" }}>
-                {["Academic","Disciplinary","General"].map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Subject</label>
-              <input value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-                style={{ fontFamily: "Inter, sans-serif" }} />
-            </div>
+            <Sel label="Category" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+              {["Academic", "Disciplinary", "General"].map(c => <option key={c}>{c}</option>)}
+            </Sel>
+            <Inp label="Subject (if Academic)" value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} />
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Remark</label>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Remark *</label>
               <textarea required value={form.remark} onChange={e => setForm({ ...form, remark: e.target.value })} rows={2}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-                style={{ fontFamily: "Inter, sans-serif" }} />
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter,sans-serif" }} />
             </div>
             <div className="sm:col-span-2">
-              <button type="submit" className="btn-primary text-sm px-4 py-2 rounded-lg">Add Remark</button>
+              <button type="submit" disabled={saving} className="bg-[#F97316] text-white font-bold text-xs px-5 py-2.5 rounded-lg disabled:opacity-60">{saving ? "Adding…" : "Add Remark"}</button>
             </div>
           </form>
           <table className="portal-table">
-            <thead><tr><th>Date</th><th>Category</th><th>Subject</th><th>Remark</th><th>Given By</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Date</th><th>Category</th><th>Subject</th><th>Remark</th><th>Given By</th><th>Action</th></tr></thead>
             <tbody>
-              {studentRemarks.map((r, i) => (
-                <tr key={i}>
-                  <td>{r.date}</td>
-                  <td><span className={{"Academic":"text-[#F97316]","Disciplinary":"text-[#F97316]","General":"text-[#4F46E5]"}[r.category] + " font-medium"}>{r.category}</span></td>
-                  <td>{r.subject}</td>
+              {remarks.map(r => (
+                <tr key={r.id}>
+                  <td>{new Date(r.created_at).toLocaleDateString("en-GB")}</td>
+                  <td><span className={`font-medium ${catColor[r.category] || ""}`}>{r.category}</span></td>
+                  <td>{r.subject || "—"}</td>
                   <td>{r.remark}</td>
-                  <td>{r.givenBy}</td>
-                  <td>
-                    <button className="text-[#4F46E5] text-xs font-medium hover:underline mr-2">Edit</button>
-                    <button onClick={() => { setLocalRemarks(localRemarks.filter((_, j) => !(j === i))); toast.success("Remark deleted."); }} className="text-[#F97316] text-xs font-medium hover:underline">Delete</button>
-                  </td>
+                  <td>{r.given_by}</td>
+                  <td><button onClick={() => deleteRemark(r.id)} className="text-red-400 text-xs font-medium hover:underline">Delete</button></td>
                 </tr>
               ))}
+              {remarks.length === 0 && <tr><td colSpan={6} className="text-center py-3 text-slate-400">No remarks yet.</td></tr>}
             </tbody>
           </table>
         </>
@@ -521,100 +639,240 @@ const RemarksAdminPanel = () => {
   );
 };
 
-// ─── ADMISSIONS ADMIN ─────────────────────────────────────────────────────────
-const AdmissionsAdminPanel = () => {
-  const [inquiries, setInquiries] = useState(ADMISSIONS_INQUIRIES);
-  const [statusFilter, setStatusFilter] = useState("");
+// ─── MANAGE USERS (Faculty + Admin) ──────────────────────────────────────────
+const ManageUsersPanel = () => {
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("");
+  const [form, setForm] = useState({ email: "", name: "", role: "faculty", designation: "", subject: "", mobile: "" });
+  const [saving, setSaving] = useState(false);
+  const { adminUser } = useAuth();
 
-  const filtered = inquiries.filter(a => !statusFilter || a.status === statusFilter);
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase.from("admin_users").select("*").order("created_at", { ascending: false });
+    setUsers((data as AdminUserRow[]) || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+  const addUser = async () => {
+    if (!form.email || !form.name) { toast.error("Email and Name are required."); return; }
+    setSaving(true);
+    const { error } = await supabase.from("admin_users").insert([{
+      email: form.email.trim().toLowerCase(), name: form.name, role: form.role,
+      designation: form.designation, subject: form.subject, mobile: form.mobile,
+      password: "Welcome@123", must_change_password: true, is_active: true,
+      created_by: adminUser?.id,
+    }]);
+    setSaving(false);
+    if (error) { toast.error(error.message.includes("unique") ? "This email is already registered." : error.message); return; }
+    toast.success(`${form.role === "faculty" ? "Faculty" : "Admin"} added! Default password: Welcome@123`);
+    setShowForm(false); setForm({ email: "", name: "", role: "faculty", designation: "", subject: "", mobile: "" });
+    fetchUsers();
+  };
+
+  const toggleActive = async (u: AdminUserRow) => {
+    if (u.email === adminUser?.email) { toast.error("You cannot deactivate your own account."); return; }
+    await supabase.from("admin_users").update({ is_active: !u.is_active }).eq("id", u.id);
+    fetchUsers();
+    toast.success(`Account ${u.is_active ? "deactivated" : "activated"}.`);
+  };
+
+  const filtered = users.filter(u => !roleFilter || u.role === roleFilter);
+  const roleBadge: Record<string, string> = { superadmin: "text-purple-600", admin: "text-indigo-600", faculty: "text-emerald-600" };
 
   return (
     <div>
-      <h2 className="section-title">Admissions</h2>
-      <div className="flex gap-3 mb-4">
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-          style={{ fontFamily: "Inter, sans-serif" }}>
-          <option value="">All Status</option>
-          {["New","Reviewing","Accepted","Rejected"].map(s => <option key={s}>{s}</option>)}
+      <SectionTitle>Manage Users (Admin & Faculty)</SectionTitle>
+      <div className="flex flex-wrap gap-3 mb-5">
+        <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter,sans-serif" }}>
+          <option value="">All Roles</option>
+          <option value="superadmin">Super Admin</option>
+          <option value="admin">Admin</option>
+          <option value="faculty">Faculty</option>
         </select>
+        <button onClick={() => setShowForm(v => !v)} className="bg-[#F97316] text-white font-bold text-xs px-4 py-2 rounded-lg hover:bg-[#ea580c]">+ Add Faculty / Admin</button>
       </div>
-      <table className="portal-table">
-        <thead><tr><th>#</th><th>Parent Name</th><th>Child</th><th>Class</th><th>Phone</th><th>Date</th><th>Status</th><th>Action</th></tr></thead>
-        <tbody>
-          {filtered.map((a, i) => (
-            <tr key={a.id}>
-              <td>{i + 1}</td>
-              <td className="font-medium">{a.parentName}</td>
-              <td>{a.childName}</td>
-              <td>{a.class}</td>
-              <td>{a.phone}</td>
-              <td>{a.date}</td>
-              <td>
-                <select value={a.status}
-                  onChange={e => setInquiries(inquiries.map(x => x.id === a.id ? { ...x, status: e.target.value } : x))}
-                  className={`border rounded px-2 py-1 text-xs font-medium focus:outline-none ${a.status === "Accepted" ? "border-[#F97316] text-[#F97316]" : a.status === "Rejected" ? "border-[#F97316] text-[#F97316]" : "border-slate-300 text-slate-600"}`}
-                  style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                  {["New","Reviewing","Accepted","Rejected"].map(s => <option key={s}>{s}</option>)}
-                </select>
-              </td>
-              <td>
-                {a.status === "Accepted" && (
-                  <button onClick={() => toast.success("Offer letter sent (demo)!")} className="text-[#F97316] text-xs font-medium hover:underline">Send Offer</button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      {showForm && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-5">
+          <div className="flex justify-between items-center mb-4">
+            <p className="text-xs font-black uppercase tracking-widest text-[#F97316]" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Add New User</p>
+            <button onClick={() => setShowForm(false)}><X className="w-4 h-4 text-slate-400" /></button>
+          </div>
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            <Inp label="Full Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <Inp label="Email Address *" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+            <Sel label="Role *" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
+              <option value="faculty">Faculty (restricted access)</option>
+              <option value="admin">Admin (full access)</option>
+            </Sel>
+            <Inp label="Designation" placeholder="e.g. Class Teacher LKG-A" value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} />
+            <Inp label="Subject" placeholder="e.g. English, Maths" value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} />
+            <Inp label="Mobile" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} />
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
+            <p className="text-xs text-amber-700 font-medium" style={{ fontFamily: "Inter,sans-serif" }}>
+              Default password will be <strong>Welcome@123</strong>. The user will be asked to change it on first login. Faculty accounts can only access Attendance and Remarks pages.
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={addUser} disabled={saving} className="bg-[#F97316] text-white font-bold text-xs px-6 py-2.5 rounded-lg disabled:opacity-60">{saving ? "Adding…" : "Add User"}</button>
+            <button onClick={() => setShowForm(false)} className="border border-slate-300 text-slate-600 font-bold text-xs px-5 py-2.5 rounded-lg">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <p className="text-slate-400 text-sm">Loading users…</p> : (
+        <table className="portal-table">
+          <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Designation</th><th>Status</th><th>Pwd Set</th><th>Actions</th></tr></thead>
+          <tbody>
+            {filtered.map((u, i) => (
+              <tr key={u.id}>
+                <td>{i + 1}</td>
+                <td className="font-medium">{u.name}</td>
+                <td>{u.email}</td>
+                <td><span className={`font-bold ${roleBadge[u.role] || ""}`}>{u.role}</span></td>
+                <td>{u.designation || "—"}</td>
+                <td><span className={u.is_active ? "status-present" : "status-absent"}>{u.is_active ? "Active" : "Inactive"}</span></td>
+                <td><span className={u.must_change_password ? "status-pending" : "status-paid"}>{u.must_change_password ? "Pending" : "Set"}</span></td>
+                <td>
+                  {u.email !== adminUser?.email && (
+                    <button onClick={() => toggleActive(u)} className="text-slate-500 text-xs font-medium hover:underline">
+                      {u.is_active ? "Deactivate" : "Activate"}
+                    </button>
+                  )}
+                  {u.email === adminUser?.email && <span className="text-xs text-slate-300">You</span>}
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && <tr><td colSpan={8} className="text-center py-4 text-slate-400">No users found.</td></tr>}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 };
 
-// ─── ANNOUNCEMENTS ─────────────────────────────────────────────────────────────
-const AnnouncementsPanel = () => {
-  const [announcements, setAnnouncements] = useState(ANNOUNCEMENTS);
-  const [form, setForm] = useState({ title: "", message: "", audience: "All" });
+// ─── ADMISSIONS ───────────────────────────────────────────────────────────────
+const AdmissionsPanel = () => {
+  const [inquiries, setInquiries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("");
 
-  const post = (e: React.FormEvent) => {
+  useEffect(() => {
+    supabase.from("admissions_inquiries").select("*").order("created_at", { ascending: false }).then(({ data }) => {
+      setInquiries(data || []);
+      setLoading(false);
+    });
+  }, []);
+
+  const updateStatus = async (id: string, status: string) => {
+    await supabase.from("admissions_inquiries").update({ status }).eq("id", id);
+    setInquiries(inquiries.map(a => a.id === id ? { ...a, status } : a));
+  };
+
+  const filtered = inquiries.filter(a => !statusFilter || a.status === statusFilter);
+  const statusColor: Record<string, string> = { New: "text-indigo-500", Reviewing: "text-amber-600", Accepted: "text-emerald-600", Rejected: "text-red-500" };
+
+  return (
+    <div>
+      <SectionTitle>Admissions</SectionTitle>
+      <div className="flex gap-3 mb-4">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter,sans-serif" }}>
+          <option value="">All Status</option>
+          {["New", "Reviewing", "Accepted", "Rejected"].map(s => <option key={s}>{s}</option>)}
+        </select>
+      </div>
+      {loading ? <p className="text-slate-400 text-sm">Loading…</p> : (
+        <table className="portal-table">
+          <thead><tr><th>#</th><th>Parent</th><th>Child</th><th>Class</th><th>Phone</th><th>Date</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {filtered.map((a, i) => (
+              <tr key={a.id}>
+                <td>{i + 1}</td>
+                <td className="font-medium">{a.parent_name}</td>
+                <td>{a.child_name}</td>
+                <td>{a.class}</td>
+                <td>{a.phone}</td>
+                <td>{new Date(a.created_at).toLocaleDateString("en-GB")}</td>
+                <td>
+                  <select value={a.status || "New"} onChange={e => updateStatus(a.id, e.target.value)}
+                    className={`border rounded px-2 py-1 text-xs font-bold focus:outline-none bg-white ${statusColor[a.status] || ""}`}
+                    style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+                    {["New", "Reviewing", "Accepted", "Rejected"].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </td>
+                <td>{a.status === "Accepted" && <button onClick={() => toast.success("Offer letter sent (email service needed).")} className="text-[#F97316] text-xs font-medium hover:underline">Send Offer</button>}</td>
+              </tr>
+            ))}
+            {filtered.length === 0 && <tr><td colSpan={8} className="text-center py-4 text-slate-400">No inquiries yet.</td></tr>}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+};
+
+// ─── ANNOUNCEMENTS ────────────────────────────────────────────────────────────
+const AnnouncementsPanel = () => {
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [form, setForm] = useState({ title: "", message: "", audience: "All" });
+  const [saving, setSaving] = useState(false);
+  const { adminUser } = useAuth();
+
+  useEffect(() => {
+    supabase.from("announcements").select("*").order("created_at", { ascending: false }).then(({ data }) => setAnnouncements(data || []));
+  }, []);
+
+  const post = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAnnouncements([{ id: Date.now(), ...form, date: new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) }, ...announcements]);
-    setForm({ title: "", message: "", audience: "All" });
+    setSaving(true);
+    const { data, error } = await supabase.from("announcements").insert([{ ...form, posted_by: adminUser?.name }]).select().single();
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
     toast.success("Announcement posted!");
+    setAnnouncements([data, ...announcements]);
+    setForm({ title: "", message: "", audience: "All" });
+  };
+
+  const del = async (id: string) => {
+    await supabase.from("announcements").delete().eq("id", id);
+    setAnnouncements(announcements.filter(a => a.id !== id));
+    toast.success("Deleted.");
   };
 
   return (
     <div>
-      <h2 className="section-title">Announcements</h2>
+      <SectionTitle>Announcements</SectionTitle>
       <form onSubmit={post} className="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-6 space-y-3">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>New Announcement</p>
-        <div><label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Title</label>
-          <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter, sans-serif" }} /></div>
-        <div><label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Message</label>
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>New Announcement</p>
+        <Inp label="Title *" required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+        <div>
+          <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Message *</label>
           <textarea required rows={3} value={form.message} onChange={e => setForm({ ...form, message: e.target.value })}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter, sans-serif" }} /></div>
-        <div><label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Audience</label>
-          <select value={form.audience} onChange={e => setForm({ ...form, audience: e.target.value })}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter, sans-serif" }}>
-            {["All","Pre-KG","LKG","UKG","All Parents","All Staff"].map(a => <option key={a}>{a}</option>)}
-          </select></div>
-        <button type="submit" className="btn-primary text-sm px-4 py-2 rounded-lg">Post Announcement</button>
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter,sans-serif" }} />
+        </div>
+        <Sel label="Audience" value={form.audience} onChange={e => setForm({ ...form, audience: e.target.value })}>
+          {["All", "Pre-KG", "LKG", "UKG", "All Parents", "All Staff"].map(a => <option key={a}>{a}</option>)}
+        </Sel>
+        <button type="submit" disabled={saving} className="bg-[#F97316] text-white font-bold text-xs px-5 py-2.5 rounded-lg disabled:opacity-60">{saving ? "Posting…" : "Post Announcement"}</button>
       </form>
       <div className="divide-y divide-slate-100">
         {announcements.map(a => (
           <div key={a.id} className="py-3 flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs text-slate-400 mb-0.5" style={{ fontFamily: "Inter, sans-serif" }}>{a.date} · {a.audience}</p>
-              <p className="font-semibold text-slate-800 text-sm" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{a.title}</p>
-              <p className="text-slate-500 text-xs mt-0.5" style={{ fontFamily: "Inter, sans-serif" }}>{a.message}</p>
+              <p className="text-xs text-slate-400 mb-0.5" style={{ fontFamily: "Inter,sans-serif" }}>{new Date(a.created_at).toLocaleDateString("en-GB")} · {a.audience}</p>
+              <p className="font-semibold text-slate-800 text-sm" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{a.title}</p>
+              <p className="text-slate-500 text-xs mt-0.5" style={{ fontFamily: "Inter,sans-serif" }}>{a.message}</p>
             </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button className="text-[#4F46E5] text-xs font-medium hover:underline">Edit</button>
-              <button onClick={() => setAnnouncements(announcements.filter(x => x.id !== a.id))} className="text-[#F97316] text-xs font-medium hover:underline">Delete</button>
-            </div>
+            <button onClick={() => del(a.id)} className="text-red-400 text-xs font-medium hover:underline flex-shrink-0">Delete</button>
           </div>
         ))}
+        {announcements.length === 0 && <p className="text-slate-400 text-sm py-4">No announcements yet.</p>}
       </div>
     </div>
   );
@@ -622,47 +880,54 @@ const AnnouncementsPanel = () => {
 
 // ─── BUS MANAGEMENT ───────────────────────────────────────────────────────────
 const BusPanel = () => {
-  const [routes, setRoutes] = useState(BUS_ROUTES);
+  const [routes, setRoutes] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [newRoute, setNewRoute] = useState({ routeNo: "", routeName: "", areas: "", pickup: "", drop: "", driver: "", mobile: "" });
+  const [form, setForm] = useState({ route_no: "", route_name: "", areas: "", pickup_time: "", drop_time: "", driver_name: "", driver_mobile: "" });
+
+  useEffect(() => {
+    supabase.from("bus_routes").select("*").order("route_no").then(({ data }) => setRoutes(data || []));
+  }, []);
+
+  const addRoute = async () => {
+    const { data, error } = await supabase.from("bus_routes").insert([form]).select().single();
+    if (error) { toast.error(error.message); return; }
+    setRoutes([...routes, data]);
+    setShowAdd(false); setForm({ route_no: "", route_name: "", areas: "", pickup_time: "", drop_time: "", driver_name: "", driver_mobile: "" });
+    toast.success("Route added!");
+  };
+
+  const del = async (id: string) => {
+    await supabase.from("bus_routes").delete().eq("id", id);
+    setRoutes(routes.filter(r => r.id !== id));
+    toast.success("Route deleted.");
+  };
 
   return (
     <div>
-      <h2 className="section-title">Bus Management</h2>
-      <button onClick={() => setShowAdd(!showAdd)} className="btn-primary text-sm px-4 py-2 rounded-lg mb-4">+ Add Route</button>
+      <SectionTitle>Bus Management</SectionTitle>
+      <button onClick={() => setShowAdd(v => !v)} className="bg-[#F97316] text-white font-bold text-xs px-4 py-2 rounded-lg mb-4">+ Add Route</button>
       {showAdd && (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 grid sm:grid-cols-2 gap-3">
-          {[{ l: "Route No.", k: "routeNo" }, { l: "Route Name", k: "routeName" }, { l: "Areas", k: "areas" }, { l: "Pickup Time", k: "pickup" }, { l: "Drop Time", k: "drop" }, { l: "Driver Name", k: "driver" }, { l: "Driver Mobile", k: "mobile" }].map(f => (
-            <div key={f.k}>
-              <label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{f.l}</label>
-              <input value={newRoute[f.k as keyof typeof newRoute]} onChange={e => setNewRoute({ ...newRoute, [f.k]: e.target.value })}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter, sans-serif" }} />
-            </div>
+          {[["Route No.", "route_no"], ["Route Name", "route_name"], ["Areas Covered", "areas"], ["Pickup Time", "pickup_time"], ["Drop Time", "drop_time"], ["Driver Name", "driver_name"], ["Driver Mobile", "driver_mobile"]].map(([l, k]) => (
+            <Inp key={k} label={l} value={(form as any)[k]} onChange={e => setForm({ ...form, [k]: e.target.value })} />
           ))}
-          <div className="sm:col-span-2">
-            <button onClick={() => { setRoutes([...routes, { id: Date.now(), ...newRoute }]); setShowAdd(false); toast.success("Route added!"); }}
-              className="btn-primary text-sm px-4 py-2 rounded-lg">Save Route</button>
+          <div className="sm:col-span-2 flex gap-3">
+            <button onClick={addRoute} className="bg-[#F97316] text-white font-bold text-xs px-5 py-2 rounded-lg">Save Route</button>
+            <button onClick={() => setShowAdd(false)} className="border border-slate-300 text-slate-600 font-bold text-xs px-4 py-2 rounded-lg">Cancel</button>
           </div>
         </div>
       )}
       <table className="portal-table">
-        <thead><tr><th>Route No.</th><th>Name</th><th>Areas</th><th>Pickup</th><th>Drop</th><th>Driver</th><th>Mobile</th><th>Actions</th></tr></thead>
+        <thead><tr><th>No.</th><th>Name</th><th>Areas</th><th>Pickup</th><th>Drop</th><th>Driver</th><th>Mobile</th><th>Del</th></tr></thead>
         <tbody>
-          {routes.map((r) => (
+          {routes.map(r => (
             <tr key={r.id}>
-              <td className="font-bold text-[#F97316]">{r.routeNo}</td>
-              <td>{r.routeName}</td>
-              <td>{r.areas}</td>
-              <td>{r.pickup}</td>
-              <td>{r.drop}</td>
-              <td>{r.driver}</td>
-              <td>{r.mobile}</td>
-              <td>
-                <button className="text-[#4F46E5] text-xs font-medium hover:underline mr-2">Edit</button>
-                <button onClick={() => setRoutes(routes.filter(x => x.id !== r.id))} className="text-[#F97316] text-xs font-medium hover:underline">Delete</button>
-              </td>
+              <td className="font-bold text-[#F97316]">{r.route_no}</td>
+              <td>{r.route_name}</td><td>{r.areas}</td><td>{r.pickup_time}</td><td>{r.drop_time}</td><td>{r.driver_name}</td><td>{r.driver_mobile}</td>
+              <td><button onClick={() => del(r.id)} className="text-red-400 text-xs font-medium hover:underline">Delete</button></td>
             </tr>
           ))}
+          {routes.length === 0 && <tr><td colSpan={8} className="text-center py-3 text-slate-400">No routes added yet.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -671,46 +936,54 @@ const BusPanel = () => {
 
 // ─── STAFF ────────────────────────────────────────────────────────────────────
 const StaffPanel = () => {
-  const [staff, setStaff] = useState(STAFF);
+  const [staff, setStaff] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", designation: "", subject: "", mobile: "", email: "" });
 
+  useEffect(() => {
+    supabase.from("staff").select("*").order("name").then(({ data }) => setStaff(data || []));
+  }, []);
+
+  const addStaff = async () => {
+    const { data, error } = await supabase.from("staff").insert([form]).select().single();
+    if (error) { toast.error(error.message); return; }
+    setStaff([...staff, data]);
+    setShowForm(false); setForm({ name: "", designation: "", subject: "", mobile: "", email: "" });
+    toast.success("Staff member added!");
+  };
+
+  const del = async (id: string) => {
+    await supabase.from("staff").delete().eq("id", id);
+    setStaff(staff.filter(s => s.id !== id));
+    toast.success("Removed.");
+  };
+
   return (
     <div>
-      <h2 className="section-title">Staff</h2>
-      <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm px-4 py-2 rounded-lg mb-4">+ Add Staff</button>
+      <SectionTitle>Staff</SectionTitle>
+      <button onClick={() => setShowForm(v => !v)} className="bg-[#F97316] text-white font-bold text-xs px-4 py-2 rounded-lg mb-4">+ Add Staff</button>
       {showForm && (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 grid sm:grid-cols-2 gap-3">
-          {[{ l: "Name", k: "name" }, { l: "Designation", k: "designation" }, { l: "Subject", k: "subject" }, { l: "Mobile", k: "mobile" }, { l: "Email", k: "email" }].map(f => (
-            <div key={f.k}>
-              <label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{f.l}</label>
-              <input value={form[f.k as keyof typeof form]} onChange={e => setForm({ ...form, [f.k]: e.target.value })}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter, sans-serif" }} />
-            </div>
-          ))}
-          <div className="sm:col-span-2">
-            <button onClick={() => { setStaff([...staff, { id: Date.now(), ...form }]); setShowForm(false); toast.success("Staff added!"); }}
-              className="btn-primary text-sm px-4 py-2 rounded-lg">Save Staff</button>
+          <Inp label="Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+          <Inp label="Designation" value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} />
+          <Inp label="Subject" value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} />
+          <Inp label="Mobile" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} />
+          <Inp label="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+          <div className="sm:col-span-2 flex gap-3">
+            <button onClick={addStaff} className="bg-[#F97316] text-white font-bold text-xs px-5 py-2 rounded-lg">Save</button>
+            <button onClick={() => setShowForm(false)} className="border border-slate-300 text-slate-600 font-bold text-xs px-4 py-2 rounded-lg">Cancel</button>
           </div>
         </div>
       )}
       <table className="portal-table">
-        <thead><tr><th>#</th><th>Name</th><th>Designation</th><th>Subject</th><th>Mobile</th><th>Email</th><th>Actions</th></tr></thead>
+        <thead><tr><th>#</th><th>Name</th><th>Designation</th><th>Subject</th><th>Mobile</th><th>Email</th><th>Del</th></tr></thead>
         <tbody>
           {staff.map((s, i) => (
-            <tr key={s.id}>
-              <td>{i + 1}</td>
-              <td className="font-medium">{s.name}</td>
-              <td>{s.designation}</td>
-              <td>{s.subject}</td>
-              <td>{s.mobile}</td>
-              <td>{s.email}</td>
-              <td>
-                <button className="text-[#4F46E5] text-xs font-medium hover:underline mr-2">Edit</button>
-                <button onClick={() => setStaff(staff.filter(x => x.id !== s.id))} className="text-[#F97316] text-xs font-medium hover:underline">Delete</button>
-              </td>
+            <tr key={s.id}><td>{i + 1}</td><td className="font-medium">{s.name}</td><td>{s.designation}</td><td>{s.subject}</td><td>{s.mobile}</td><td>{s.email}</td>
+              <td><button onClick={() => del(s.id)} className="text-red-400 text-xs font-medium hover:underline">Delete</button></td>
             </tr>
           ))}
+          {staff.length === 0 && <tr><td colSpan={7} className="text-center py-3 text-slate-400">No staff added.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -719,116 +992,100 @@ const StaffPanel = () => {
 
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
 const ReportsPanel = () => {
-  const [activeReport, setActiveReport] = useState<string | null>(null);
+  const [active, setActive] = useState<string | null>(null);
+  const [data, setData] = useState<any[]>([]);
+  const [classFilter, setClassFilter] = useState("");
+
+  const loadReport = async (id: string) => {
+    setActive(id); setData([]);
+    if (id === "strength") {
+      const { data: d } = await supabase.from("students").select("name,class,section,admission_no,status").order("class");
+      setData(d || []);
+    } else if (id === "fees") {
+      const { data: d } = await supabase.from("fees").select("*, students(name,class)").eq("status", "Pending");
+      setData(d || []);
+    } else if (id === "remarks") {
+      const { data: d } = await supabase.from("remarks").select("*, students(name,class)").order("created_at", { ascending: false }).limit(50);
+      setData(d || []);
+    }
+  };
+
   const reports = [
-    { id: "strength", label: "Student Strength Report", desc: "Filter by class, export PDF/CSV." },
-    { id: "attendance", label: "Attendance Report", desc: "Filter by student or class + date range." },
-    { id: "fees", label: "Fee Collection Report", desc: "Filter by date range, export PDF/Excel." },
-    { id: "remarks", label: "Remarks Report", desc: "Filter by student, export PDF." },
+    { id: "strength", label: "Student Strength Report" },
+    { id: "fees", label: "Outstanding Fees Report" },
+    { id: "remarks", label: "Remarks Report (last 50)" },
   ];
 
   return (
     <div>
-      <h2 className="section-title">Reports</h2>
-      <div className="space-y-3 mb-6">
+      <SectionTitle>Reports</SectionTitle>
+      <div className="space-y-2 mb-6">
         {reports.map(r => (
-          <button key={r.id} onClick={() => setActiveReport(r.id === activeReport ? null : r.id)}
-            className="w-full flex items-center justify-between text-left px-4 py-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
-            <div>
-              <p className="font-semibold text-slate-800 text-sm" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{r.label}</p>
-              <p className="text-slate-500 text-xs mt-0.5" style={{ fontFamily: "Inter, sans-serif" }}>{r.desc}</p>
-            </div>
-            <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${activeReport === r.id ? "rotate-90" : ""}`} />
+          <button key={r.id} onClick={() => loadReport(r.id)} className="w-full flex items-center justify-between text-left px-4 py-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
+            <span className="font-semibold text-slate-800 text-sm" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{r.label}</span>
+            <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${active === r.id ? "rotate-90" : ""}`} />
           </button>
         ))}
       </div>
-      {activeReport && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
-          <p className="font-bold text-slate-800 text-sm mb-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{reports.find(r => r.id === activeReport)?.label}</p>
-          <div className="flex gap-3 flex-wrap mb-4">
-            <select className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter, sans-serif" }}>
-              <option>All Classes</option>
-              {["Pre-KG","LKG","UKG"].map(c => <option key={c}>{c}</option>)}
-            </select>
-            <input type="date" className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter, sans-serif" }} />
+      {active && data.length > 0 && (
+        <div className="overflow-x-auto">
+          <div className="flex justify-between items-center mb-3">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">{reports.find(r => r.id === active)?.label}</p>
+            <button onClick={() => { const csv = data.map(d => Object.values(d).join(",")).join("\n"); const b = new Blob([csv], { type: "text/csv" }); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${active}_report.csv`; a.click(); }} className="border border-slate-300 text-slate-600 font-bold text-xs px-4 py-2 rounded-lg hover:bg-slate-50">Export CSV</button>
           </div>
-          <table className="portal-table mb-4">
-            <thead><tr><th>#</th><th>Name</th><th>Class</th><th>Value</th></tr></thead>
+          <table className="portal-table">
+            <thead><tr>{Object.keys(data[0]).filter(k => !k.includes("_id") && k !== "id").map(k => <th key={k}>{k.replace(/_/g, " ")}</th>)}</tr></thead>
             <tbody>
-              {STUDENTS.slice(0, 3).map((s, i) => (
-                <tr key={s.id}><td>{i+1}</td><td>{s.name}</td><td>{s.class}</td><td className="text-[#F97316] font-medium">90%</td></tr>
+              {data.map((row, i) => (
+                <tr key={i}>{Object.entries(row).filter(([k]) => !k.includes("_id") && k !== "id").map(([k, v]) => <td key={k}>{typeof v === "object" ? JSON.stringify(v) : String(v ?? "—")}</td>)}</tr>
               ))}
             </tbody>
           </table>
-          <button onClick={() => toast.success("Report exported (demo)!")} className="btn-primary text-sm px-4 py-2 rounded-lg">Export PDF</button>
         </div>
       )}
     </div>
   );
 };
 
-// ─── SETTINGS ADMIN ──────────────────────────────────────────────────────────
+// ─── SETTINGS ─────────────────────────────────────────────────────────────────
 const SettingsPanel = () => {
   const [open, setOpen] = useState<string | null>("school");
-  const toggleSection = (s: string) => setOpen(open === s ? null : s);
+  const { adminUser } = useAuth();
 
   return (
     <div>
-      <h2 className="section-title">Settings</h2>
+      <SectionTitle>Settings</SectionTitle>
       <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
         {[
           {
             id: "school", label: "School Info",
             content: (
               <div className="grid sm:grid-cols-2 gap-3">
-                {["School Name","Address","Phone","Email"].map(f => (
-                  <div key={f}>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{f}</label>
-                    <input defaultValue={f === "School Name" ? "Sri Anveeksha Public School" : f === "Address" ? "Ootla, Jinnaram, Telangana" : f === "Phone" ? "+91 98765 43210" : "info@srianveeksha.edu.in"}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F97316]/30" style={{ fontFamily: "Inter, sans-serif" }} />
-                  </div>
-                ))}
-                <div className="sm:col-span-2"><button onClick={() => toast.success("Settings saved!")} className="btn-primary text-sm px-4 py-2 rounded-lg">Save</button></div>
+                <Inp label="School Name" defaultValue="Sri Anveeksha Public School" />
+                <Inp label="Address" defaultValue="Ootla, Jinnaram, Telangana" />
+                <Inp label="Phone" defaultValue="+91 98765 43210" />
+                <Inp label="Email" defaultValue="info@srianveeksha.edu.in" />
+                <div className="sm:col-span-2"><button onClick={() => toast.success("Settings saved!")} className="bg-[#F97316] text-white font-bold text-xs px-5 py-2 rounded-lg">Save</button></div>
               </div>
             )
           },
           {
             id: "year", label: "Academic Year",
             content: (
-              <div className="space-y-3">
-                <div className="flex gap-3 flex-wrap">
-                  <div><label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Start Date</label>
-                    <input type="date" defaultValue="2026-06-10" className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter, sans-serif" }} /></div>
-                  <div><label className="block text-xs font-semibold text-slate-600 mb-1" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>End Date</label>
-                    <input type="date" defaultValue="2027-04-15" className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none" style={{ fontFamily: "Inter, sans-serif" }} /></div>
-                </div>
-                <button onClick={() => toast.success("Academic year saved!")} className="btn-primary text-sm px-4 py-2 rounded-lg">Save</button>
+              <div className="flex gap-4 flex-wrap">
+                <Inp label="Start Date" type="date" defaultValue="2026-06-10" />
+                <Inp label="End Date" type="date" defaultValue="2027-04-15" />
+                <div className="w-full"><button onClick={() => toast.success("Year saved!")} className="bg-[#F97316] text-white font-bold text-xs px-5 py-2 rounded-lg">Save</button></div>
               </div>
             )
           },
-          {
-            id: "admins", label: "Admin Accounts",
-            content: (
-              <div>
-                <table className="portal-table mb-3">
-                  <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
-                  <tbody>
-                    <tr><td>admin@srianveeksha.edu.in</td><td>Super Admin</td><td className="status-present">Active</td><td><button className="text-[#4F46E5] text-xs font-medium hover:underline">Reset Password</button></td></tr>
-                  </tbody>
-                </table>
-                <button className="btn-primary text-sm px-4 py-2 rounded-lg">+ Add Admin</button>
-              </div>
-            )
-          },
-        ].map(section => (
-          <div key={section.id}>
-            <button onClick={() => toggleSection(section.id)}
-              className="flex items-center justify-between w-full px-4 py-3 bg-white text-left hover:bg-slate-50 transition-colors"
-              style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-              <span className="font-bold text-slate-700 text-xs uppercase tracking-wider">{section.label}</span>
-              <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${open === section.id ? "rotate-90" : ""}`} />
+        ].map(sec => (
+          <div key={sec.id}>
+            <button onClick={() => setOpen(open === sec.id ? null : sec.id)} className="flex items-center justify-between w-full px-4 py-3 bg-white text-left hover:bg-slate-50" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+              <span className="font-bold text-slate-700 text-xs uppercase tracking-wider">{sec.label}</span>
+              <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${open === sec.id ? "rotate-90" : ""}`} />
             </button>
-            {open === section.id && <div className="p-4 bg-white border-t border-slate-100">{section.content}</div>}
+            {open === sec.id && <div className="p-4 bg-white border-t border-slate-100">{sec.content}</div>}
           </div>
         ))}
       </div>
@@ -836,10 +1093,39 @@ const SettingsPanel = () => {
   );
 };
 
+// ─── FACULTY WELCOME (restricted) ────────────────────────────────────────────
+const FacultyWelcome = ({ name }: { name: string }) => (
+  <div>
+    <SectionTitle>Welcome, {name}</SectionTitle>
+    <p className="text-sm text-slate-600 mb-4" style={{ fontFamily: "Inter,sans-serif" }}>You are logged in as Faculty. Use the menu on the left to mark attendance or add remarks for students.</p>
+    <div className="border border-slate-200 rounded-xl p-5 bg-white">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Your Access</p>
+      <ul className="space-y-2 text-sm text-slate-700" style={{ fontFamily: "Inter,sans-serif" }}>
+        <li>✓ Mark daily attendance for any class</li>
+        <li>✓ View attendance history for any student</li>
+        <li>✓ Add academic and disciplinary remarks</li>
+        <li>✗ Student registration, fees, admissions, announcements (admin only)</li>
+      </ul>
+    </div>
+  </div>
+);
+
 // ─── MAIN ADMIN DASHBOARD ─────────────────────────────────────────────────────
 const AdminDashboard = () => {
-  const [active, setActive] = useState("dashboard");
+  const [active, setActive] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
+  const { adminUser, isFaculty, logout } = useAuth();
+
+  // Set default active tab based on role
+  useEffect(() => {
+    if (!adminUser) { navigate("/login?role=admin"); return; }
+    setActive(isFaculty ? "attendance" : "dashboard");
+  }, [adminUser, isFaculty, navigate]);
+
+  if (!adminUser) return null;
+
+  const visibleMenu = ADMIN_MENU.filter(m => m.roles.includes(adminUser.role));
 
   const panels: Record<string, React.ReactNode> = {
     dashboard: <DashboardPanel />,
@@ -847,65 +1133,89 @@ const AdminDashboard = () => {
     attendance: <AttendanceAdminPanel />,
     fees: <FeeManagementPanel />,
     remarks: <RemarksAdminPanel />,
-    admissions: <AdmissionsAdminPanel />,
+    admissions: <AdmissionsPanel />,
     announcements: <AnnouncementsPanel />,
     bus: <BusPanel />,
     staff: <StaffPanel />,
+    manage_users: <ManageUsersPanel />,
     reports: <ReportsPanel />,
     settings: <SettingsPanel />,
+    faculty_home: <FacultyWelcome name={adminUser.name} />,
   };
 
-  const logout = () => { localStorage.removeItem("saps_role"); navigate("/"); };
+  const handleLogout = () => { logout(); navigate("/"); };
+
+  const SidebarContent = () => (
+    <>
+      <div className="px-5 py-5 border-b border-slate-100">
+        <p className="text-[10px] font-black tracking-[0.2em] text-[#F97316] uppercase mb-3" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+          {isFaculty ? "Faculty Portal" : "Admin Portal"}
+        </p>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-orange-50 border border-[#F97316]/20 flex items-center justify-center text-[#F97316] font-bold text-xs flex-shrink-0">
+            {adminUser.name.split(" ").map(n => n[0]).slice(0, 2).join("")}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-slate-800 truncate" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>{adminUser.name}</p>
+            <p className="text-[10px] text-slate-400 truncate capitalize" style={{ fontFamily: "Inter,sans-serif" }}>{adminUser.role} {adminUser.designation ? `· ${adminUser.designation}` : ""}</p>
+          </div>
+        </div>
+      </div>
+      <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
+        {visibleMenu.map(item => (
+          <button key={item.id} onClick={() => { setActive(item.id); setMobileMenuOpen(false); }}
+            className={`w-full flex items-center text-left px-4 py-2.5 rounded-xl transition-all text-sm font-medium ${active === item.id ? "bg-orange-50 text-[#F97316] shadow-[inset_3px_0_0_0_#F97316]" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+            style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+            <ChevronRight className={`w-3.5 h-3.5 mr-2.5 transition-transform ${active === item.id ? "rotate-90 text-[#F97316]" : "text-slate-300"}`} />
+            {item.label}
+          </button>
+        ))}
+      </nav>
+      <div className="p-3 border-t border-slate-100">
+        <button onClick={handleLogout} className="w-full text-center px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-600 hover:text-[#F97316] hover:border-[#F97316]/30 font-bold tracking-wide uppercase transition-all" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Sign Out</button>
+      </div>
+    </>
+  );
 
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col md:flex-row">
-      {/* Mobile top menu */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40 px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between shadow-sm">
+      {/* Mobile top bar */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-black tracking-[0.15em] text-[#F97316] uppercase" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Admin</span>
-          <select value={active} onChange={e => setActive(e.target.value)}
-            className="border border-slate-200 bg-slate-50 text-slate-800 rounded-lg px-2 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#F97316]/30"
-            style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-            {menuItems.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-        </div>
-        <button onClick={logout} className="text-xs bg-slate-100 px-3 py-1.5 rounded-md text-slate-600 font-medium hover:bg-slate-200" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Sign Out</button>
-      </div>
-
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col w-64 border-r border-slate-200 bg-white flex-shrink-0 sticky top-0 h-screen overflow-y-auto z-50">
-        <div className="px-6 py-6 border-b border-slate-100">
-          <p className="text-xs font-black tracking-[0.2em] text-[#F97316] uppercase mb-2" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Portal Menu</p>
-          <div className="flex items-center gap-3 mt-4">
-            <div className="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center text-[#F97316] font-bold text-xs tracking-tighter shadow-sm border border-[#F97316]/20">AD</div>
-            <p className="text-sm font-bold text-slate-800 truncate" style={{ fontFamily: "Inter, sans-serif" }}>Administrator</p>
+          <button onClick={() => setMobileMenuOpen(true)} className="p-1.5 -ml-1.5 text-slate-600">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+          </button>
+          <div>
+            <span className="text-xs font-black tracking-widest text-[#F97316] uppercase" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+              {isFaculty ? "Faculty" : "Admin"} Portal
+            </span>
+            <span className="text-[10px] text-slate-400 block" style={{ fontFamily: "Inter,sans-serif" }}>{adminUser.name}</span>
           </div>
         </div>
-        <nav className="flex-1 py-4 px-3 space-y-1">
-          {menuItems.map(item => (
-            <button key={item.id} onClick={() => setActive(item.id)}
-              className={`w-full flex items-center text-left px-4 py-3 rounded-xl transition-all duration-200 text-sm font-medium ${
-                active === item.id 
-                  ? "bg-orange-50 text-[#F97316] shadow-[inset_3px_0_0_0_#F97316]" 
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-              }`}
-              style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-              <span className={`w-1.5 h-1.5 rounded-full mr-3 ${active === item.id ? "bg-[#F97316]" : "bg-transparent text-slate-300"}`}>
-                {active !== item.id && <ChevronRight className="w-4 h-4 -ml-1 text-slate-300" />}
-              </span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="p-4 border-t border-slate-100 bg-slate-50/50">
-          <button onClick={logout} className="w-full text-center px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-600 hover:text-[#F97316] hover:border-[#F97316]/30 hover:shadow-sm font-bold tracking-wide transition-all uppercase" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Sign Out</button>
+        <select value={active} onChange={e => setActive(e.target.value)} className="border border-slate-200 bg-slate-50 text-slate-800 rounded-lg px-2 py-1.5 text-xs font-semibold focus:outline-none" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+          {visibleMenu.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+      </div>
+
+      {/* Mobile sidebar overlay */}
+      {mobileMenuOpen && <div className="fixed inset-0 bg-slate-900/40 z-50 md:hidden" onClick={() => setMobileMenuOpen(false)} />}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-60 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-300 md:hidden ${mobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="md:hidden flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <span className="text-xs font-black tracking-widest text-[#F97316] uppercase" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Menu</span>
+          <button onClick={() => setMobileMenuOpen(false)}><X className="w-4 h-4 text-slate-400" /></button>
         </div>
+        <SidebarContent />
       </aside>
 
-      {/* Content */}
-      <main className="flex-1 min-h-screen pt-20 md:pt-6 md:px-8 px-4 pb-12 overflow-x-auto relative">
+      {/* Desktop sidebar */}
+      <aside className="hidden md:flex flex-col w-60 border-r border-slate-200 bg-white flex-shrink-0 sticky top-0 h-screen overflow-y-auto z-30">
+        <SidebarContent />
+      </aside>
+
+      {/* Main content */}
+      <main className="flex-1 pt-20 md:pt-6 md:px-8 px-4 pb-12 overflow-x-auto">
         <div className="max-w-6xl mx-auto w-full">
-          {panels[active]}
+          {active && panels[active]}
         </div>
       </main>
     </div>

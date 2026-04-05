@@ -1,32 +1,44 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import Index from "./pages/Index.tsx";
-import LoginPage from "./pages/LoginPage.tsx";
-import ParentDashboard from "./pages/ParentDashboard.tsx";
-import AdminDashboard from "./pages/AdminDashboard.tsx";
-import NotFound from "./pages/NotFound.tsx";
+import { Toaster } from "sonner";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import Index from "@/pages/Index";
+import LoginPage from "@/pages/LoginPage";
+import ParentDashboard from "@/pages/ParentDashboard";
+import AdminDashboard from "@/pages/AdminDashboard";
+import NotFound from "@/pages/NotFound";
 
-const queryClient = new QueryClient();
+// ── Protected route wrappers ──────────────────────────────────────────────────
+const RequireParent = ({ children }: { children: React.ReactNode }) => {
+  const { parentStudentId } = useAuth();
+  const location = useLocation();
+  if (!parentStudentId) return <Navigate to="/login?role=parent" state={{ from: location }} replace />;
+  return <>{children}</>;
+};
+
+const RequireAdmin = ({ children }: { children: React.ReactNode }) => {
+  const { adminUser } = useAuth();
+  const location = useLocation();
+  if (!adminUser) return <Navigate to="/login?role=admin" state={{ from: location }} replace />;
+  return <>{children}</>;
+};
+
+const AppRoutes = () => (
+  <Routes>
+    <Route path="/" element={<Index />} />
+    <Route path="/login" element={<LoginPage />} />
+    <Route path="/parent" element={<RequireParent><ParentDashboard /></RequireParent>} />
+    <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+    <Route path="*" element={<NotFound />} />
+  </Routes>
+);
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/parent" element={<ParentDashboard />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+  <BrowserRouter>
+    <AuthProvider>
+      <Toaster position="top-right" richColors />
+      <AppRoutes />
+    </AuthProvider>
+  </BrowserRouter>
 );
 
 export default App;
