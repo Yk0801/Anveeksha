@@ -32,7 +32,7 @@ const ParentDashboard = () => {
       supabase.from("students").select("*").eq("id", parentStudentId).single(),
       supabase.from("attendance").select("*").eq("student_id", parentStudentId).order("date", { ascending: false }),
       supabase.from("fees").select("*").eq("student_id", parentStudentId).order("due_date", { ascending: false }),
-      supabase.from("remarks").select("*").eq("student_id", parentStudentId).order("date", { ascending: false }),
+      supabase.from("remarks").select("*").eq("student_id", parentStudentId).order("created_at", { ascending: false }),
       supabase.from("announcements").select("*").order("date", { ascending: false }),
       supabase.from("marks").select("*").eq("student_id", parentStudentId).order("date", { ascending: false })
     ]);
@@ -222,8 +222,8 @@ const ParentDashboard = () => {
               <div className="flex justify-between items-start mb-2">
                 <p className="font-bold text-slate-900 text-sm">{r.subject}</p>
                 <div className="text-right">
-                  <p className="text-xs text-slate-500">{new Date(r.date).toLocaleDateString("en-GB")}</p>
-                  <p className="text-[10px] uppercase font-bold text-[#F97316]">{r.faculty_name}</p>
+                  <p className="text-xs text-slate-500">{new Date(r.created_at).toLocaleDateString("en-GB")}</p>
+                  <p className="text-[10px] uppercase font-bold text-[#F97316]">{r.given_by}</p>
                 </div>
               </div>
               <p className="text-sm text-slate-700 leading-relaxed font-medium">{r.remark}</p>
