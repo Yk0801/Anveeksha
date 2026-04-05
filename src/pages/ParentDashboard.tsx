@@ -17,6 +17,7 @@ const ParentDashboard = () => {
   const [fees, setFees] = useState<any[]>([]);
   const [remarks, setRemarks] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [marks, setMarks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Profile Settings
@@ -27,12 +28,13 @@ const ParentDashboard = () => {
     if (!parentStudentId) return;
     setLoading(true);
     
-    const [stRes, attRes, feeRes, rmRes, annRes] = await Promise.all([
+    const [stRes, attRes, feeRes, rmRes, annRes, mkRes] = await Promise.all([
       supabase.from("students").select("*").eq("id", parentStudentId).single(),
       supabase.from("attendance").select("*").eq("student_id", parentStudentId).order("date", { ascending: false }),
       supabase.from("fees").select("*").eq("student_id", parentStudentId).order("due_date", { ascending: false }),
       supabase.from("remarks").select("*").eq("student_id", parentStudentId).order("date", { ascending: false }),
-      supabase.from("announcements").select("*").order("date", { ascending: false })
+      supabase.from("announcements").select("*").order("date", { ascending: false }),
+      supabase.from("marks").select("*").eq("student_id", parentStudentId).order("date", { ascending: false })
     ]);
 
     if (stRes.data) setStudent(stRes.data);
@@ -40,6 +42,7 @@ const ParentDashboard = () => {
     if (feeRes.data) setFees(feeRes.data);
     if (rmRes.data) setRemarks(rmRes.data);
     if (annRes.data) setAnnouncements(annRes.data);
+    if (mkRes.data) setMarks(mkRes.data);
     
     setLoading(false);
   }, [parentStudentId]);
@@ -72,8 +75,9 @@ const ParentDashboard = () => {
     return <div className="min-h-screen flex items-center justify-center bg-slate-50"><p className="text-slate-500 font-medium">Loading Parent Portal...</p></div>;
   }
 
-  const presents = attendance.filter(a => a.status === "P").length;
-  const attendancePercentage = attendance.length > 0 ? Math.round((presents / attendance.length) * 100) : 0;
+  const validDays = attendance.filter(a => a.status !== "Holiday");
+  const presents = validDays.filter(a => a.status === "P").length;
+  const attendancePercentage = validDays.length > 0 ? Math.round((presents / validDays.length) * 100) : 0;
   const totalFees = fees.reduce((acc, f) => acc + Number(f.amount), 0);
   const paidFees = fees.filter(f => f.status === "Paid").reduce((acc, f) => acc + Number(f.amount), 0);
 
@@ -146,8 +150,8 @@ const ParentDashboard = () => {
         <SectionTitle>Attendance Records</SectionTitle>
         <div className="flex gap-4 mb-6">
           <div className="flex-1 bg-slate-50 border border-slate-100 p-4 rounded-xl text-center">
-            <p className="text-xs font-bold text-slate-500 uppercase">Total Days</p>
-            <p className="text-2xl font-black text-slate-900">{attendance.length}</p>
+            <p className="text-xs font-bold text-slate-500 uppercase">Working Days</p>
+            <p className="text-2xl font-black text-slate-900">{validDays.length}</p>
           </div>
           <div className="flex-1 bg-emerald-50 border border-emerald-100 p-4 rounded-xl text-center">
             <p className="text-xs font-bold text-emerald-600 uppercase">Present</p>
@@ -165,8 +169,8 @@ const ParentDashboard = () => {
               <tr key={a.id} className="hover:bg-slate-50/50">
                 <td className="py-3 font-medium text-slate-800">{new Date(a.date).toLocaleDateString("en-GB", { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</td>
                 <td className="py-3">
-                  <span className={`px-2 py-1 rounded text-xs font-bold ${a.status === "P" ? "bg-emerald-100 text-emerald-700" : a.status === "A" ? "bg-red-100 text-red-700" : "bg-indigo-100 text-indigo-700"}`}>
-                    {a.status === "P" ? "Present" : a.status === "A" ? "Absent" : "Leave"}
+                  <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${a.status === "P" ? "bg-emerald-100 text-emerald-700" : a.status === "A" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-700"}`}>
+                    {a.status === "P" ? "Present" : a.status === "A" ? "Absent" : a.status}
                   </span>
                 </td>
               </tr>
@@ -227,6 +231,27 @@ const ParentDashboard = () => {
           ))}
           {remarks.length === 0 && <p className="text-slate-400 text-sm text-center py-4">No remarks found.</p>}
         </div>
+      </div>
+    ),
+    marks: (
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <SectionTitle>Marks & Grades</SectionTitle>
+        <table className="w-full text-left text-sm whitespace-nowrap portal-table">
+          <thead><tr className="border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold"><th className="pb-3">Date</th><th className="pb-3">Exam Type</th><th className="pb-3">Subject</th><th className="pb-3">Marks</th><th className="pb-3">Grade</th><th className="pb-3">Faculty</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {marks.map((m: any) => (
+              <tr key={m.id} className="hover:bg-slate-50/50">
+                <td className="py-3">{new Date(m.date).toLocaleDateString("en-GB")}</td>
+                <td className="py-3 font-medium text-slate-800">{m.exam_type}</td>
+                <td className="py-3">{m.subject}</td>
+                <td className="py-3"><span className="font-bold">{m.marks_obtained}</span> <span className="text-slate-400 text-[10px]">/ {m.max_marks}</span></td>
+                <td className="py-3">{m.grade || "—"}</td>
+                <td className="py-3">{m.faculty_name || "—"}</td>
+              </tr>
+            ))}
+            {marks.length === 0 && <tr><td colSpan={6} className="text-center py-4 text-slate-400">No marks recorded.</td></tr>}
+          </tbody>
+        </table>
       </div>
     ),
     notices: (
@@ -316,6 +341,7 @@ const ParentDashboard = () => {
   const navItems = [
     { id: "profile", label: "Student Profile" },
     { id: "attendance", label: "Attendance" },
+    { id: "marks", label: "Marks & Grades" },
     { id: "fees", label: "Fee Details" },
     { id: "remarks", label: "Academic Remarks" },
     { id: "notices", label: "Notices & Circulars" },
