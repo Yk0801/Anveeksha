@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import { hashPassword } from "@/lib/utils";
 
 export type AdminRole = "superadmin" | "admin" | "faculty";
 
@@ -51,11 +52,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     const loginAdmin = async (email: string, password: string) => {
+        const hashedPassword = await hashPassword(password);
         const { data, error } = await supabase
             .from("admin_users")
             .select("*")
             .eq("email", email.trim().toLowerCase())
-            .eq("password", password)
+            .eq("password", hashedPassword)
             .eq("is_active", true)
             .single();
 
@@ -115,9 +117,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const changePassword = async (newPassword: string) => {
         if (!adminUser) return { error: "Not logged in." };
+        const hashedPassword = await hashPassword(newPassword);
         const { error } = await supabase
             .from("admin_users")
-            .update({ password: newPassword, must_change_password: false })
+            .update({ password: hashedPassword, must_change_password: false })
             .eq("id", adminUser.id);
 
         if (error) return { error: error.message };

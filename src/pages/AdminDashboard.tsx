@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronRight, Users, CheckSquare, List, DollarSign, MessageSquare, Clipboard, Calendar, Settings, FileText, Bus, UserCircle, Bell, X, Moon, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, AdminUser } from "@/context/AuthContext";
+import { hashPassword } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Student {
@@ -661,10 +662,11 @@ const ManageUsersPanel = () => {
   const addUser = async () => {
     if (!form.email || !form.name) { toast.error("Email and Name are required."); return; }
     setSaving(true);
+    const hashedPwd = await hashPassword("Welcome@123");
     const { error } = await supabase.from("admin_users").insert([{
       email: form.email.trim().toLowerCase(), name: form.name, role: form.role,
       designation: form.designation, subject: form.subject, mobile: form.mobile,
-      password: "Welcome@123", must_change_password: true, is_active: true,
+      password: hashedPwd, must_change_password: true, is_active: true,
       created_by: adminUser?.id,
     }]);
     setSaving(false);
