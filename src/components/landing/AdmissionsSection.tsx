@@ -3,15 +3,17 @@ import { motion } from "framer-motion";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
 const timeline = [
-  { label: "Application Opens", date: "May 1, 2026" },
-  { label: "Last Date to Apply", date: "May 30, 2026" },
-  { label: "Classes Begin", date: "Jun 12, 2026" },
+  { label: "Application Opens", date: "Mar 1, 2025" },
+  { label: "Last Date to Apply", date: "Apr 30, 2025" },
+  { label: "Assessment Day", date: "May 10, 2025" },
+  { label: "Offers Sent", date: "May 17, 2025" },
+  { label: "Classes Begin", date: "Jun 10, 2025" },
 ];
 
 const eligibility = [
-  { cls: "Pre-KG", age: "3 – 4 years (as of June 1, 2026)" },
-  { cls: "LKG", age: "4 – 5 years (as of June 1, 2026)" },
-  { cls: "UKG", age: "5 – 6 years (as of June 1, 2026)" },
+  { cls: "Pre-KG", age: "3 – 4 years (as of June 1, 2025)" },
+  { cls: "LKG", age: "4 – 5 years (as of June 1, 2025)" },
+  { cls: "UKG", age: "5 – 6 years (as of June 1, 2025)" },
 ];
 
 const documents = [
