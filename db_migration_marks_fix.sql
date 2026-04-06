@@ -8,3 +8,4 @@ ALTER TABLE public.marks DISABLE ROW LEVEL SECURITY;
 
 -- Alternatively, if you want to keep RLS enabled but allow public access:
 -- CREATE POLICY "Enable full access for all to marks" ON public.marks FOR ALL USING (true) WITH CHECK (true);
+/.

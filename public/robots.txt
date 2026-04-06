@@ -12,3 +12,7 @@ Allow: /
 
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /parent
+
+Sitemap: https://srianveeksha.me/sitemap.xml
